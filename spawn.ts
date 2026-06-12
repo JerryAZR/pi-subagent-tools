@@ -33,6 +33,7 @@ export interface SpawnResult {
   turns: number;
   toolCalls: string[];
   durationMs: number;
+  stderr?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -257,6 +258,5 @@ export async function runSubagent(opts: SpawnOptions): Promise<SpawnResult> {
   if (exitCode !== 0) return { output: stderr || `Subagent exited with code ${exitCode}`, isError: true, exitCode, tokens, turns: turnCount, toolCalls: toolCallNames, durationMs: Date.now() - startTime };
 
   const output = getFinalOutput(messages);
-  const finalOutput = stderr.trim() ? `[stderr]\n${stderr.trim()}\n[/stderr]\n\n${output || "(no output)"}` : (output || "(no output)");
-  return { output: finalOutput, isError: false, exitCode: 0, tokens, turns: turnCount, toolCalls: toolCallNames, durationMs: Date.now() - startTime };
+  return { output: output || "(no output)", isError: false, exitCode: 0, tokens, turns: turnCount, toolCalls: toolCallNames, durationMs: Date.now() - startTime, stderr: stderr.trim() || undefined };
 }

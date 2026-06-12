@@ -198,6 +198,7 @@ async function subagentExecute(
           durationMs: result.durationMs,
         },
         final: true,
+        stderr: result.stderr,
       },
       toolCalls: result.toolCalls,
     };
