@@ -149,6 +149,11 @@ export async function runSubagent(opts: SpawnOptions): Promise<SpawnResult> {
   const MAX_MSG_COUNT = 5;
   const MAX_PREV_LINES = 20;
 
+  const trimPrev = () => {
+    const lines = previousTurnsText.split("\n");
+    if (lines.length > MAX_PREV_LINES) previousTurnsText = lines.slice(-MAX_PREV_LINES).join("\n");
+  };
+
   let lastUpdate = 0;
   let pendingTimer: ReturnType<typeof setTimeout> | null = null;
   const UPDATE_INTERVAL = 200;
@@ -205,27 +210,33 @@ export async function runSubagent(opts: SpawnOptions): Promise<SpawnResult> {
         if (streamText) {
           previousTurnsText = previousTurnsText ? previousTurnsText + "\n" + streamText : streamText;
           streamText = "";
+          trimPrev();
         } else {
           const text = (msg.content ?? []).filter((c: any) => c.type === "text" || c.type === "thinking").map((c: any) => c[c.type]).join("");
-          if (text) previousTurnsText = previousTurnsText ? previousTurnsText + "\n" + text : text;
+          if (text) {
+            previousTurnsText = previousTurnsText ? previousTurnsText + "\n" + text : text;
+            trimPrev();
+          }
         }
         for (const tc of (msg.content ?? []).filter((c: any) => c.type === "toolCall")) {
           toolCallNames.push(tc.name);
           const parts = [`▸ ${tc.name}`];
-          if (tc.arguments && typeof tc.arguments === "object") {
-            const entries = Object.entries(tc.arguments);
-            const capPerParam = entries.length > 1;
+          if (tc.arguments) {
+            const args = typeof tc.arguments === "string" ? JSON.parse(tc.arguments) : tc.arguments;
+            if (args && typeof args === "object") {
+              const entries = Object.entries(args);
+              const capPerParam = entries.length > 1;
             for (const [k, v] of entries) {
               const val = typeof v === "string" ? v : JSON.stringify(v);
               const short = capPerParam && val.length > 40 ? val.slice(0, 37) + "..." : val;
               parts.push(`${k}=${short}`);
             }
           }
+          }
           let line = parts.join(" ");
           if (line.length > 80) line = line.slice(0, 77) + "...";
           previousTurnsText = previousTurnsText ? `${previousTurnsText}\n${line}` : line;
-          const prevLines = previousTurnsText.split("\n");
-          if (prevLines.length > MAX_PREV_LINES) previousTurnsText = prevLines.slice(-MAX_PREV_LINES).join("\n");
+          trimPrev();
         }
         fireUpdate();
       }

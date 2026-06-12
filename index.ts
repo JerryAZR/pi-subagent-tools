@@ -220,7 +220,7 @@ function renderSubagentCall(
 ) {
   const firstLine = args.task.split("\n")[0];
   const combined = args.cwd ? `${shortenPath(args.cwd)} | ${firstLine}` : firstLine;
-  const preview = combined.length > 80 ? combined.slice(0, 80) + "..." : combined;
+  const preview = combined.length > 80 ? combined.slice(0, 77) + "..." : combined;
   return new Text(
     `${theme.fg("toolTitle", theme.bold(label))}${theme.fg("dim", preview)}`,
     0, 0,
@@ -241,6 +241,7 @@ function renderSubagentResult(
   const output = raw.split("\n").map(l => l.startsWith("▸") ? theme.fg("muted", l) : l).join("\n");
   const container = new Container();
 
+  if (result.details?.final) subagentSpinners.delete(context.toolCallId);
 
   if (!options.expanded) {
     const text = output || theme.fg("dim", "(no output)");
@@ -254,7 +255,6 @@ function renderSubagentResult(
 
   const isFinal = !!result.details?.final;
   if (isFinal) {
-    subagentSpinners.delete(context.toolCallId);
     const mdTheme = getMarkdownTheme();
     container.addChild(new Markdown(raw, 0, 0, mdTheme));
   } else {
