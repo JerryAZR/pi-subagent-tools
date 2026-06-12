@@ -363,7 +363,7 @@ export default function (pi: ExtensionAPI) {
       );
     },
     renderCall: (args, theme) => renderSubagentCall("delegate ", args, theme),
-    renderResult: (result, options, theme) => renderSubagentResult(result as any, options, theme),
+    renderResult: (result, options, theme, context) => renderSubagentResult(result as any, options, theme, context),
   });
 
   // Review tool

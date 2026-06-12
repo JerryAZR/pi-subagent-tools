@@ -33,7 +33,7 @@ export function formatDuration(ms: number): string {
  */
 export function formatTokens(n: number): string {
   let s: string;
-  if (n < 1000) s = String(n) + "   ";
+  if (n < 1000) s = String(n) + "   ";  // trailing spaces give same visual weight as k/M suffix; padStart right-aligns
   else if (n < 1_000_000) s = (Math.trunc(n / 100) / 10).toFixed(1) + "k";
   else s = (Math.trunc(n / 100_000) / 10).toFixed(1) + "M";
   return s.padStart(6);
@@ -61,6 +61,6 @@ export interface UsageStats {
 export function formatUsage(u: UsageStats, spin: () => string): string {
   const parts: string[] = [`${spin()} · Turn ${u.turns}`];
   parts.push(`Tokens: input ${formatTokens(u.input)} | output ${formatTokens(u.output)}`);
-  if (u.durationMs) parts.push(formatDuration(u.durationMs));
+  if (u.durationMs != null) parts.push(formatDuration(u.durationMs));
   return parts.join(" · ");
 }

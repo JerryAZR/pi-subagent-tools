@@ -222,7 +222,7 @@ export async function runSubagent(opts: SpawnOptions): Promise<SpawnResult> {
         for (const tc of (msg.content ?? []).filter((c: any) => c.type === "toolCall")) {
           toolCallNames.push(tc.name);
           const parts = [`▸ ${tc.name}`];
-          if (tc.arguments && typeof tc.arguments === "object") {
+          if (tc.arguments && typeof tc.arguments === "object" && !Array.isArray(tc.arguments)) {
             const entries = Object.entries(tc.arguments);
             const capPerParam = entries.length > 1;
             for (const [k, v] of entries) {
@@ -249,7 +249,7 @@ export async function runSubagent(opts: SpawnOptions): Promise<SpawnResult> {
     }
     proc.stdout.on("data", (data) => { buffer += data.toString(); const lines = buffer.split("\n"); buffer = lines.pop() || ""; for (const line of lines) processLine(line); });
     proc.stderr.on("data", (data) => { stderr += data.toString(); });
-    proc.on("close", (code) => { if (opts.signal) opts.signal.removeEventListener("abort", killProc); if (buffer.trim()) processLine(buffer); resolve(code ?? 0); });
+    proc.on("close", (code) => { if (opts.signal) opts.signal.removeEventListener("abort", killProc); if (buffer.trim()) processLine(buffer); resolve(code ?? 1); });
     proc.on("error", (err) => { if (opts.signal) opts.signal.removeEventListener("abort", killProc); spawnError = err.message; resolve(1); });
   });
 
