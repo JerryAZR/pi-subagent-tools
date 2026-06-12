@@ -1,4 +1,4 @@
-# pi-subagent-tools
+# @jerryan/pi-subagent-tools
 
 A minimal pi extension for delegating work to isolated subagent processes. Three tools, one job each. The agent is a **project manager** — delegate by default, dive in only when necessary.
 
@@ -13,7 +13,7 @@ Every subagent is a fresh `pi` process with an isolated context window. No agent
 ## Installation
 
 ```bash
-pi install npm:pi-subagent-tools
+pi install npm:@jerryan/pi-subagent-tools
 ```
 
 The extension is available the next time you start a pi session.
@@ -59,6 +59,11 @@ Subagents cannot spawn further subagents beyond one level:
 | Parent (normal) | ✓ | ✓ | ✓ |
 | Delegate child | ✓ | ✓ | Rejects at runtime |
 | Review / explore child | — | — | — |
+
+## Related
+
+- **[pi-subagents](https://github.com/nicobailon/pi-subagents)** — Feature-rich implementation with agent definitions, background runs, session forking, inter-process communication, and a full management UI. The definitive reference for what's possible, though possibly more than most workflows need.
+- **[pi-subagent-lite](https://github.com/JerryAZR/pi-subagent-lite)** — Ultra-minimal prototype (~250 lines). A single `task` tool with a mode-switching parameter. The experiment that validated the spawn-based approach.
 
 ## License
 
