@@ -148,6 +148,7 @@ async function subagentExecute(
     return {
       content: [{ type: "text" as const, text: "Cannot spawn subagent: cwd is required." }],
       isError: true,
+      details: { final: true },
     };
   }
   try {
@@ -159,6 +160,7 @@ async function subagentExecute(
           text: `Cannot spawn subagent: "${cwd}" is not a directory.`,
         }],
         isError: true,
+        details: { final: true },
       };
     }
   } catch (err: any) {
@@ -168,6 +170,7 @@ async function subagentExecute(
         text: `Cannot spawn subagent: cwd "${cwd}" does not exist or is not accessible (${err.message}).`,
       }],
       isError: true,
+      details: { final: true },
     };
   }
 
@@ -205,6 +208,7 @@ async function subagentExecute(
         text: `Subagent failed: ${err.message || String(err)}`,
       }],
       isError: true,
+      details: { final: true },
     };
   }
 }
@@ -294,8 +298,8 @@ export default function (pi: ExtensionAPI) {
             return { content: [{ type: "text" as const, text: "No git command provided." }], isError: true };
           }
           const subcommand = args[0];
-          const READONLY_GIT = new Set(["log","diff","show","status","branch","blame","stash","tag",
-            "rev-parse","rev-list","ls-tree","ls-files","grep","describe","shortlog","whatchanged","remote","config"]);
+          const READONLY_GIT = new Set(["log","diff","show","status","branch","blame",
+            "rev-parse","rev-list","ls-tree","ls-files","grep","describe","shortlog","whatchanged"]);
           if (!READONLY_GIT.has(subcommand)) {
             return {
               content: [{ type: "text" as const, text: `git ${subcommand} is not allowed (read-only commands only).` }],
