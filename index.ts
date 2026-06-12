@@ -241,7 +241,7 @@ function renderSubagentResult(
     subagentSpinners.set(context.toolCallId, createSpinner());
   }
   const spin = subagentSpinners.get(context.toolCallId)!;
-  const raw = result.content.find((c: any) => c.type === "text")?.text ?? "";
+  const raw = result.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("");
   const output = raw.split("\n").map(l => l.startsWith("▸") ? theme.fg("muted", l) : l).join("\n");
   const container = new Container();
 
