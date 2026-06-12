@@ -1,0 +1,15 @@
+# pi-subagents vs pi-subagent-tools
+
+## `extension/index.ts` — Tool Design Philosophy
+
+**pi-subagents** registers a single monolithic `subagent` tool (~450 lines of tool definition + ~600 lines of runtime orchestration) that multiplexes execution modes (single, parallel, chain), management actions (list/get/create/update/delete), and control actions (status/interrupt/resume) through a single parameter schema. It is an extensible orchestration platform: the agent picks an agent name from a discovered catalog, composes chains, fans out parallel tasks, and manages async lifecycle. The extension entry also wires up slash-command bridges, prompt-template delegation, progress widgets, control notices, session lifecycle hooks, async job tracking, result watchers, and event-driven notification rendering — all of which add significant runtime machinery.
+**pi-subagent-tools** takes the opposite approach: three small, single-purpose tools (`review`, `explore`, `delegate`) that hardcode their invariants at registration time rather than exposing them as parameters. The extension entry is ~300 lines total, with each tool definition under 50 lines. There is no agent catalog, no orchestration, no lifecycle management. The tools are named after management *verbs* (review, explore, delegate) rather than implementation *mechanisms* — the agent thinks in terms of what it wants done, not how to configure a subagent engine.
+
+## `agents/agents.ts` — Agent Discovery
+
+**pi-subagents** has a full agent discovery and configuration subsystem (~900 lines). Agents are defined as Markdown files with YAML frontmatter, discovered recursively from builtin, user (`~/.agents`, `~/.pi/agent/agents`), and project (`.pi/agents`, `.agents`) directories. The system supports package namespacing, settings-based overrides at both user and project scope (via `settings.json` `subagents.agentOverrides`), per-agent disable/enable, bulk disable of builtins, chain definitions (`.chain.md` / `.chain.json`), and chain discovery diagnostics. It merges agents across scopes with proper precedence rules.
+**pi-subagent-tools** has no agent discovery at all. There is no `agents.ts` equivalent — tools spawn raw pi CLI subprocesses using `child_process.spawn`. The "agent" is simply the task string passed via `-p`, with role-based system prompts loaded from static `.md` files shipped with the extension. There are no agent files to create, no discovery to configure, no overrides to manage.
+
+## Summary
+
+pi-subagents is a heavy, feature-complete subagent orchestration platform designed for users who want to curate a catalog of named agents with configurable system prompts, compose multi-step chains, run parallel fanouts, manage async background runs, and control subagent lifecycle through interrupts and resumption. pi-subagent-tools is a lightweight, opinionated extension that covers the 80% use case with three hardcoded tools, zero configuration, and no runtime file I/O — designed for users who just want to review code, explore external projects, and delegate implementation work without learning an agent definition DSL.

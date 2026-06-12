@@ -32,6 +32,7 @@ export interface SpawnResult {
   tokens?: { input: number; output: number; total: number };
   turns: number;
   toolCalls: string[];
+  durationMs: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -137,8 +138,6 @@ export async function runSubagent(opts: SpawnOptions): Promise<SpawnResult> {
   if (opts.childRole) env.PI_SUBAGENT_TOOLS_ROLE = opts.childRole;
 
   const startTime = Date.now();
-  let lastProgressText = "";
-  let lastActivityAt = Date.now();
 
   const proc = spawn(invocation.command, invocation.args, {
     cwd: opts.cwd,
@@ -146,17 +145,6 @@ export async function runSubagent(opts: SpawnOptions): Promise<SpawnResult> {
     stdio: ["ignore", "pipe", "pipe"],
     env,
   });
-
-  // Activity heartbeat: fire onUpdate every 1s if subagent is idle
-  // so elapsed time keeps ticking (pi-subagents pattern with unref)
-  const activityTimer = setInterval(() => {
-    if (!opts.onUpdate || !lastProgressText) return;
-    const idleMs = Date.now() - lastActivityAt;
-    if (idleMs < 1000) return; // skip during active turns
-    const elapsed = Math.round((Date.now() - startTime) / 1000);
-    opts.onUpdate({ content: [{ type: "text", text: `${lastProgressText} · running ${elapsed}s` }] });
-  }, 1000);
-  activityTimer.unref?.();
 
   const processLine = (line: string) => {
     if (!line.trim()) return;
@@ -186,9 +174,7 @@ export async function runSubagent(opts: SpawnOptions): Promise<SpawnResult> {
           if (textParts) {
             parts.push(textParts.length > 40 ? textParts.slice(0, 40) + "..." : textParts);
           }
-          lastProgressText = parts.join(" · ");
-          lastActivityAt = Date.now();
-          opts.onUpdate({ content: [{ type: "text", text: lastProgressText }] });
+          opts.onUpdate({ content: [{ type: "text", text: parts.join(" · ") }] });
         }
       }
     }
@@ -203,14 +189,14 @@ export async function runSubagent(opts: SpawnOptions): Promise<SpawnResult> {
     }
     proc.stdout.on("data", (data) => { buffer += data.toString(); const lines = buffer.split("\n"); buffer = lines.pop() || ""; for (const line of lines) processLine(line); });
     proc.stderr.on("data", (data) => { stderr += data.toString(); });
-    proc.on("close", (code) => { clearInterval(activityTimer); if (opts.signal) opts.signal.removeEventListener("abort", killProc); if (buffer.trim()) processLine(buffer); resolve(code ?? 0); });
+    proc.on("close", (code) => { if (opts.signal) opts.signal.removeEventListener("abort", killProc); if (buffer.trim()) processLine(buffer); resolve(code ?? 0); });
     proc.on("error", (err) => { if (opts.signal) opts.signal.removeEventListener("abort", killProc); spawnError = err.message; resolve(1); });
   });
 
-  if (opts.signal?.aborted) return { output: "Subagent was aborted", isError: true, exitCode: 1, tokens, turns: turnCount, toolCalls: toolCallNames };
-  if (spawnError) return { output: `Failed to start subagent: ${spawnError}`, isError: true, exitCode: 1, tokens, turns: turnCount, toolCalls: toolCallNames };
-  if (exitCode !== 0) return { output: stderr || `Subagent exited with code ${exitCode}`, isError: true, exitCode, tokens, turns: turnCount, toolCalls: toolCallNames };
+  if (opts.signal?.aborted) return { output: "Subagent was aborted", isError: true, exitCode: 1, tokens, turns: turnCount, toolCalls: toolCallNames, durationMs: Date.now() - startTime };
+  if (spawnError) return { output: `Failed to start subagent: ${spawnError}`, isError: true, exitCode: 1, tokens, turns: turnCount, toolCalls: toolCallNames, durationMs: Date.now() - startTime };
+  if (exitCode !== 0) return { output: stderr || `Subagent exited with code ${exitCode}`, isError: true, exitCode, tokens, turns: turnCount, toolCalls: toolCallNames, durationMs: Date.now() - startTime };
 
   const output = getFinalOutput(messages);
-  return { output: output || "(no output)", isError: false, exitCode: 0, tokens, turns: turnCount, toolCalls: toolCallNames };
+  return { output: output || "(no output)", isError: false, exitCode: 0, tokens, turns: turnCount, toolCalls: toolCallNames, durationMs: Date.now() - startTime };
 }
