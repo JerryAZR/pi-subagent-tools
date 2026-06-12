@@ -7,7 +7,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Message } from "@earendil-works/pi-ai";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
-import { formatTokens, SPINNER } from "./tui.ts";
+import type { UsageStats } from "./tui.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -77,11 +77,7 @@ export function getPiInvocation(args: string[]): {
 export function buildSpawnArgs(opts: SpawnOptions): string[] {
   const args: string[] = ["--mode", "json", "-p"];
 
-  if (opts.sessionFile) {
-    args.push("--session", opts.sessionFile);
-  } else {
-    args.push("--no-session");
-  }
+  args.push("--no-session");
 
   if (opts.allowedTools && opts.allowedTools.length > 0) {
     args.push("--tools", opts.allowedTools.join(","));
@@ -138,9 +134,11 @@ export async function runSubagent(opts: SpawnOptions): Promise<SpawnResult> {
   if (opts.childRole) env.PI_SUBAGENT_TOOLS_ROLE = opts.childRole;
 
   const startTime = Date.now();
-  let spin = 0;
+
+  let previousTurnsText = "";
   let streamText = "";
 
+  const displayText = () => previousTurnsText + (previousTurnsText && streamText ? "\n" : "") + streamText;
   const proc = spawn(invocation.command, invocation.args, {
     cwd: opts.cwd,
     shell: false,
@@ -148,15 +146,32 @@ export async function runSubagent(opts: SpawnOptions): Promise<SpawnResult> {
     env,
   });
 
+  let lastUpdate = 0;
+  let pendingTimer: ReturnType<typeof setTimeout> | null = null;
+  const UPDATE_INTERVAL = 200;
+
+  const doUpdate = () => {
+    if (!opts.onUpdate) return;
+    const bottom = displayText();
+    opts.onUpdate({
+      content: [{ type: "text", text: bottom }],
+      details: { usage: { turns: turnCount, input: tokens.input, output: tokens.output, total: tokens.total, durationMs: Date.now() - startTime } satisfies UsageStats, toolCalls: [...toolCallNames] },
+    });
+  };
+
   const fireUpdate = () => {
     if (!opts.onUpdate) return;
-    const top: string[] = [`${turnCount} turn${turnCount > 1 ? "s" : ""}`];
-    if (tokens.total > 0) top.push(`in:${String(tokens.input).padStart(6)} out:${String(tokens.output).padStart(6)}`);
-    if (toolCallNames.length > 0) top.push(`tool ${[...new Set(toolCallNames)].join(", ")}`);
-    const bottom = streamText.slice(0, 80) || "thinking...";
-    opts.onUpdate({ content: [{ type: "text", text: `${bottom}
-${SPINNER[spin]} ${top.join(" · ")}` }] });
-    spin = (spin + 1) % SPINNER.length;
+    const now = Date.now();
+    if (now - lastUpdate >= UPDATE_INTERVAL) {
+      lastUpdate = now;
+      doUpdate();
+    } else if (!pendingTimer) {
+      pendingTimer = setTimeout(() => {
+        pendingTimer = null;
+        lastUpdate = Date.now();
+        doUpdate();
+      }, UPDATE_INTERVAL - (now - lastUpdate));
+    }
   };
 
   const processLine = (line: string) => {
@@ -164,12 +179,12 @@ ${SPINNER[spin]} ${top.join(" · ")}` }] });
     let event: any;
     try { event = JSON.parse(line); } catch { return; }
 
-    // Per-token streaming: advance spinner + show text on every message_update
+    // Per-token streaming: show text on every message_update
     if (event.type === "message_update" && event.message) {
       const text = (event.message.content ?? [])
-        .filter((c: any) => c.type === "text")
-        .map((c: any) => c.text).join("");
-      if (text) streamText = text;
+        .filter((c: any) => c.type === "text" || c.type === "thinking")
+        .map((c: any) => c[c.type]).join("");
+      streamText = text;
       fireUpdate();
     }
 
@@ -183,10 +198,26 @@ ${SPINNER[spin]} ${top.join(" · ")}` }] });
           tokens.output += msg.usage.output || 0;
           tokens.total += msg.usage.totalTokens || 0;
         }
-        const text = (msg.content ?? []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("");
-        if (text) streamText = text;
+        if (streamText) {
+          previousTurnsText = previousTurnsText ? previousTurnsText + "\n" + streamText : streamText;
+          streamText = "";
+        } else {
+          const text = (msg.content ?? []).filter((c: any) => c.type === "text" || c.type === "thinking").map((c: any) => c[c.type]).join("");
+          if (text) previousTurnsText = previousTurnsText ? previousTurnsText + "\n" + text : text;
+        }
         for (const tc of (msg.content ?? []).filter((c: any) => c.type === "toolCall")) {
           toolCallNames.push(tc.name);
+          const parts = [`▸ ${tc.name}`];
+          if (tc.input) {
+            for (const [k, v] of Object.entries(tc.input)) {
+              const val = typeof v === "string" ? v : JSON.stringify(v);
+              const short = val.length > 40 ? val.slice(0, 37) + "..." : val;
+              parts.push(`${k}=${short}`);
+            }
+          }
+          let line = parts.join(" ");
+          if (line.length > 80) line = line.slice(0, 77) + "...";
+          previousTurnsText = previousTurnsText ? previousTurnsText + `\n${line}` : line;
         }
         fireUpdate();
       }
@@ -194,8 +225,7 @@ ${SPINNER[spin]} ${top.join(" · ")}` }] });
   };
 
   const exitCode = await new Promise<number>((resolve) => {
-    let aborted = false;
-    const killProc = () => { aborted = true; proc.kill("SIGTERM"); setTimeout(() => { if (!proc.killed) proc.kill("SIGKILL"); }, 5000); };
+    const killProc = () => { proc.kill("SIGTERM"); setTimeout(() => { if (!proc.killed) proc.kill("SIGKILL"); }, 5000); };
     if (opts.signal) {
       if (opts.signal.aborted) killProc();
       else opts.signal.addEventListener("abort", killProc, { once: true });

@@ -31,9 +31,33 @@ export function formatDuration(ms: number): string {
  * Format token count with k suffix for large numbers
  */
 export function formatTokens(n: number): string {
-  if (n < 1000) return String(n);
-  if (n < 10000) return `${(n / 1000).toFixed(1)}k`;
-  return `${Math.round(n / 1000)}k`;
+  let s: string;
+  if (n < 1000) s = String(n) + "   ";
+  else if (n < 1_000_000) s = (Math.trunc(n / 100) / 10).toFixed(1) + "k";
+  else s = (Math.trunc(n / 100_000) / 10).toFixed(1) + "M";
+  return s.padStart(6);
 }
 
-export const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+let spinnerIdx = 0;
+function getSpinnerFrame(): string {
+  const frame = SPINNER[spinnerIdx];
+  spinnerIdx = (spinnerIdx + 1) % SPINNER.length;
+  return frame;
+}
+
+export interface UsageStats {
+  turns: number;
+  input: number;
+  output: number;
+  total: number;
+  durationMs: number;
+}
+
+export function formatUsage(u: UsageStats): string {
+  const parts: string[] = [`${getSpinnerFrame()} · Turn ${u.turns}`];
+  parts.push(`Tokens: input ${formatTokens(u.input)} | output ${formatTokens(u.output)}`);
+  if (u.durationMs) parts.push(formatDuration(u.durationMs));
+  return parts.join(" · ");
+}

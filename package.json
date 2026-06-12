@@ -28,6 +28,7 @@
     "url": ""
   },
   "scripts": {
+    "pretest": "node -e \"const{cp}=require('fs');cp('test/mocks/@earendil-works','node_modules/@earendil-works',{recursive:true},()=>{})\"",
     "test": "node --experimental-strip-types --test test/*.test.ts"
   },
   "pi": {

@@ -16,15 +16,44 @@ import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Container, Spacer, Text } from "@earendil-works/pi-tui";
+import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
+import { Container, Spacer, Text, Markdown } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import {
   runSubagent,
   READONLY_TOOLS,
 } from "./spawn.ts";
-import { shortenPath, formatDuration, formatTokens } from "./tui.ts";
+import { shortenPath, formatUsage } from "./tui.ts";
 
 const EXTENSION_DIR = path.dirname(fileURLToPath(import.meta.url));
+
+// ---------------------------------------------------------------------------
+// Compact preview component — delegates to Text.render(width) for wrapping
+// ---------------------------------------------------------------------------
+
+export class CompactPreview {
+  private textComp: Text;
+  private maxLines: number;
+
+  constructor(text: string, maxLines: number = 5) {
+    this.maxLines = maxLines;
+    this.textComp = new Text(text, 0, 0);
+  }
+
+  render(width: number): string[] {
+    const lines = this.textComp.render(width);
+    if (lines.length === 0) return [];
+
+    if (lines.length <= this.maxLines) return lines;
+
+    return ["...", ...lines.slice(-this.maxLines)];
+  }
+
+  invalidate() {
+    this.textComp.invalidate();
+  }
+}
+
 const PROMPTS_DIR = path.resolve(EXTENSION_DIR, "prompts");
 const REVIEW_PROMPT_FILE = path.join(PROMPTS_DIR, "review.md");
 const EXPLORE_PROMPT_FILE = path.join(PROMPTS_DIR, "explore.md");
@@ -156,8 +185,9 @@ async function subagentExecute(
           output: result.tokens?.output,
           durationMs: result.durationMs,
         },
-        toolCalls: result.toolCalls,
+        final: true,
       },
+      toolCalls: result.toolCalls,
     };
   } catch (err: any) {
     return {
@@ -179,10 +209,11 @@ function renderSubagentCall(
   args: { task: string; cwd?: string },
   theme: any,
 ) {
-  const preview = args.task.length > 60 ? args.task.slice(0, 60) + "..." : args.task;
-  const cwdPart = args.cwd ? ` ${theme.fg("muted", shortenPath(args.cwd))}` : "";
+  const firstLine = args.task.split("\n")[0];
+  const combined = args.cwd ? `${shortenPath(args.cwd)} | ${firstLine}` : firstLine;
+  const preview = combined.length > 80 ? combined.slice(0, 80) + "..." : combined;
   return new Text(
-    `${theme.fg("toolTitle", theme.bold(label))}${theme.fg("dim", preview)}${cwdPart}`,
+    `${theme.fg("toolTitle", theme.bold(label))}${theme.fg("dim", preview)}`,
     0, 0,
   );
 }
@@ -192,32 +223,30 @@ function renderSubagentResult(
   options: { expanded: boolean },
   theme: any,
 ) {
-  const output = result.content.find((c: any) => c.type === "text")?.text ?? "";
+  const raw = result.content.find((c: any) => c.type === "text")?.text ?? "";
+  const output = raw.split("\n").map(l => l.startsWith("▸") ? theme.fg("muted", l) : l).join("\n");
   const container = new Container();
 
   if (!options.expanded) {
-    const firstLine = output.split("\n").find((l: string) => l.trim())?.trim().slice(0, 120) ?? "(no output)";
-    const more = output.length > firstLine.length ? ` ${theme.fg("dim", "(Ctrl+O to expand)")}` : "";
+    const text = output || theme.fg("dim", "(no output)");
     const usage = result.details?.usage;
-    const status = usage ? `${usage.turns ?? 0}t · in:${formatTokens(usage.input ?? 0)} out:${formatTokens(usage.output ?? 0)}` : "";
-    container.addChild(new Text(`${theme.fg("success", "✓")} ${firstLine}${more}`, 0, 0));
+    const hint = ` · ${theme.fg("dim", "Ctrl+O to expand")}`;
+    const status = usage ? formatUsage(usage) + hint : "";
+    container.addChild(new CompactPreview(text));
     if (status) container.addChild(new Text(theme.fg("dim", status), 0, 0));
     return container;
   }
 
-  container.addChild(new Text(theme.fg("muted", "─── Result ───"), 0, 0));
-  container.addChild(new Spacer(1));
-  container.addChild(new Text(output, 0, 0));
-
+  const isFinal = !!result.details?.final;
+  if (isFinal) {
+    const mdTheme = getMarkdownTheme();
+    container.addChild(new Markdown(output, 0, 0, mdTheme));
+  } else {
+    container.addChild(new CompactPreview(output, 15));
+  }
   if (result.details?.usage) {
-    const parts: string[] = [];
-    if (result.details.usage.turns) parts.push(`${result.details.usage.turns} turn${result.details.usage.turns > 1 ? "s" : ""}`);
-    if (result.details.usage.total) parts.push(`in: ${formatTokens(result.details.usage.input ?? 0)} / out: ${formatTokens(result.details.usage.output ?? 0)}`);
-    if (result.details.usage.durationMs) parts.push(formatDuration(result.details.usage.durationMs));
-    if (parts.length) {
-      container.addChild(new Spacer(1));
-      container.addChild(new Text(theme.fg("dim", parts.join(" · ")), 0, 0));
-    }
+    container.addChild(new Spacer(1));
+    container.addChild(new Text(theme.fg("dim", formatUsage(result.details.usage)), 0, 0));
   }
 
   return container;

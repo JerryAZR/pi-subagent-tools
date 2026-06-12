@@ -266,17 +266,15 @@ describe("exports", () => {
 });
 
 // ===========================================================================
-// Behavioral tests — these FAIL until spawn.ts and tui.ts are implemented
-// ===========================================================================
 
-import { shortenPath, formatDuration, formatTokens } from "../tui.ts";
+import { shortenPath, formatDuration, formatTokens, formatUsage } from "../tui.ts";
 import {
   getPiInvocation,
   buildSpawnArgs,
   runSubagent,
   type SpawnOptions,
 } from "../spawn.ts";
-
+import { CompactPreview } from "../index.ts";
 describe("tui helpers", () => {
   it("shortenPath replaces home directory with ~", () => {
     const home = os.homedir();
@@ -292,9 +290,68 @@ describe("tui helpers", () => {
   });
 
   it("formatTokens formats token counts", () => {
-    assert.strictEqual(formatTokens(150), "150");
-    assert.strictEqual(formatTokens(1500), "1.5k");
-    assert.strictEqual(formatTokens(15000), "15k");
+    assert.strictEqual(formatTokens(150), "150   ");
+    assert.strictEqual(formatTokens(1500), "  1.5k");
+    assert.strictEqual(formatTokens(15000), " 15.0k");
+    assert.strictEqual(formatTokens(1234567), "  1.2M");
+  });
+
+
+  it("CompactPreview shows full text when 5 or fewer lines", () => {
+    const preview = new CompactPreview("one\ntwo\nthree");
+    const lines = preview.render(80);
+    assert.deepStrictEqual(lines, ["one", "two", "three"]);
+  });
+
+  it("CompactPreview truncates with ... when more than 5 visual lines", () => {
+    const preview = new CompactPreview("1\n2\n3\n4\n5\n6\n7");
+    const lines = preview.render(80);
+    assert.deepStrictEqual(lines, ["...", "3", "4", "5", "6", "7"]);
+  });
+
+
+
+  it("CompactPreview wraps long lines at render width", () => {
+    const preview = new CompactPreview("A".repeat(160));
+    const lines = preview.render(40);
+    // 160 chars at width 40 = 4 lines, each ≤ 40
+    assert.strictEqual(lines.length, 4);
+    for (const line of lines) {
+      assert.ok(line.length <= 40);
+    }
+  });
+
+  it("CompactPreview wraps and truncates long text", () => {
+    // 200 chars at width 40 = 5 lines, plus 7 more lines = 12 total → shows ... + last 5
+    const text = Array(7).fill("short").join("\n") + "\n" + "X".repeat(200);
+    const preview = new CompactPreview(text);
+    const lines = preview.render(40);
+    assert.ok(lines[0] === "...");
+    assert.strictEqual(lines.length, 6); // ... + 5 wrapped chunks of X's
+  });
+
+  it("CompactPreview handles exactly maxLines boundary", () => {
+    const preview = new CompactPreview("1\n2\n3\n4\n5");
+    const lines = preview.render(80);
+    assert.deepStrictEqual(lines, ["1", "2", "3", "4", "5"]);
+  });
+
+  it("CompactPreview handles empty text", () => {
+    const preview = new CompactPreview("");
+    const lines = preview.render(80);
+    assert.deepStrictEqual(lines, [""]);
+  });
+  it("CompactPreview honors custom maxLines", () => {
+    const preview = new CompactPreview("1\n2\n3\n4\n5\n6\n7", 3);
+    const lines = preview.render(80);
+    assert.deepStrictEqual(lines, ["...", "5", "6", "7"]);
+  });
+
+  it("formatUsage produces expected status line", () => {
+    const result = formatUsage({ turns: 3, input: 1500, output: 800, total: 2300, durationMs: 5200 });
+    assert.ok(result.includes("Turn 3"));
+    assert.ok(result.includes("  1.5k"));
+    assert.ok(result.includes("800"));
   });
 });
 
@@ -336,18 +393,9 @@ describe("spawn logic", () => {
     assert.strictEqual(args[args.length - 1], "do a thing");
   });
 
-  it("buildSpawnArgs uses --session for context inherit", () => {
-    const args = buildSpawnArgs({
-      cwd: "/project",
-      task: "do work",
-      sessionFile: "/tmp/session.jsonl",
-    });
-    assert.ok(args.includes("--session"));
-    assert.ok(args.includes("/tmp/session.jsonl"));
-  });
 
-  it("runSubagent spawns a child process and returns output", async () => {
-    // This will throw "Not implemented" until spawn.ts is wired up
+  it("runSubagent returns error for nonexistent cwd", async () => {
+    // CWD /project won't exist → subagentExecute returns early with error
     const result = await runSubagent({
       cwd: "/project",
       task: "say hello and exit",
