@@ -13,6 +13,7 @@
  */
 
 import * as fs from "node:fs";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -23,7 +24,9 @@ import {
   runSubagent,
   READONLY_TOOLS,
 } from "./spawn.ts";
-import { shortenPath, formatUsage } from "./tui.ts";
+import { shortenPath, formatUsage, createSpinner } from "./tui.ts";
+
+const subagentSpinners = new Map<string, () => string>();
 
 const EXTENSION_DIR = path.dirname(fileURLToPath(import.meta.url));
 
@@ -141,6 +144,12 @@ async function subagentExecute(
   onUpdate: ((result: any) => void) | undefined,
 ) {
   // Validate cwd exists before spawning
+  if (!cwd) {
+    return {
+      content: [{ type: "text" as const, text: "Cannot spawn subagent: cwd is required." }],
+      isError: true,
+    };
+  }
   try {
     const stat = fs.statSync(cwd);
     if (!stat.isDirectory()) {
@@ -222,16 +231,22 @@ function renderSubagentResult(
   result: { content: Array<{ type: string; text?: string }>; isError?: boolean; details?: any },
   options: { expanded: boolean },
   theme: any,
+  context: { toolCallId: string },
 ) {
+  if (!subagentSpinners.has(context.toolCallId)) {
+    subagentSpinners.set(context.toolCallId, createSpinner());
+  }
+  const spin = subagentSpinners.get(context.toolCallId)!;
   const raw = result.content.find((c: any) => c.type === "text")?.text ?? "";
   const output = raw.split("\n").map(l => l.startsWith("▸") ? theme.fg("muted", l) : l).join("\n");
   const container = new Container();
+
 
   if (!options.expanded) {
     const text = output || theme.fg("dim", "(no output)");
     const usage = result.details?.usage;
     const hint = ` · ${theme.fg("dim", "Ctrl+O to expand")}`;
-    const status = usage ? formatUsage(usage) + hint : "";
+    const status = usage ? formatUsage(usage, spin) + hint : "";
     container.addChild(new CompactPreview(text));
     if (status) container.addChild(new Text(theme.fg("dim", status), 0, 0));
     return container;
@@ -239,14 +254,15 @@ function renderSubagentResult(
 
   const isFinal = !!result.details?.final;
   if (isFinal) {
+    subagentSpinners.delete(context.toolCallId);
     const mdTheme = getMarkdownTheme();
-    container.addChild(new Markdown(output, 0, 0, mdTheme));
+    container.addChild(new Markdown(raw, 0, 0, mdTheme));
   } else {
     container.addChild(new CompactPreview(output, 15));
   }
   if (result.details?.usage) {
     container.addChild(new Spacer(1));
-    container.addChild(new Text(theme.fg("dim", formatUsage(result.details.usage)), 0, 0));
+    container.addChild(new Text(theme.fg("dim", formatUsage(result.details.usage, spin)), 0, 0));
   }
 
   return container;
@@ -273,11 +289,23 @@ export default function (pi: ExtensionAPI) {
       }),
       async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
         try {
-          const { execSync } = await import("node:child_process");
-          const output = execSync(`git ${params.command}`, {
+          const args = params.command.trim().split(/\s+/);
+          if (args.length === 0) {
+            return { content: [{ type: "text" as const, text: "No git command provided." }], isError: true };
+          }
+          const subcommand = args[0];
+          const READONLY_GIT = new Set(["log","diff","show","status","branch","blame","stash","tag",
+            "rev-parse","rev-list","ls-tree","ls-files","grep","describe","shortlog","whatchanged","remote","config"]);
+          if (!READONLY_GIT.has(subcommand)) {
+            return {
+              content: [{ type: "text" as const, text: `git ${subcommand} is not allowed (read-only commands only).` }],
+              isError: true,
+            };
+          }
+          const output = execFileSync("git", args, {
             cwd: ctx.cwd,
             encoding: "utf-8",
-            maxBuffer: 1024 * 1024,
+            maxBuffer: 10 * 1024 * 1024,
             timeout: 30_000,
           });
           return { content: [{ type: "text" as const, text: output }] };
@@ -360,7 +388,7 @@ export default function (pi: ExtensionAPI) {
       );
     },
     renderCall: (args, theme) => renderSubagentCall("review ", args, theme),
-    renderResult: (result, options, theme) => renderSubagentResult(result as any, options, theme),
+    renderResult: (result, options, theme, context) => renderSubagentResult(result as any, options, theme, context),
   });
 
   // Explore tool
@@ -390,6 +418,6 @@ export default function (pi: ExtensionAPI) {
       );
     },
     renderCall: (args, theme) => renderSubagentCall("explore ", args, theme),
-    renderResult: (result, options, theme) => renderSubagentResult(result as any, options, theme),
+    renderResult: (result, options, theme, context) => renderSubagentResult(result as any, options, theme, context),
   });
 }

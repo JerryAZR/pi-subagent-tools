@@ -348,7 +348,8 @@ describe("tui helpers", () => {
   });
 
   it("formatUsage produces expected status line", () => {
-    const result = formatUsage({ turns: 3, input: 1500, output: 800, total: 2300, durationMs: 5200 });
+    const spin = () => "⠏";
+    const result = formatUsage({ turns: 3, input: 1500, output: 800, total: 2300, durationMs: 5200 }, spin);
     assert.ok(result.includes("Turn 3"));
     assert.ok(result.includes("  1.5k"));
     assert.ok(result.includes("800"));

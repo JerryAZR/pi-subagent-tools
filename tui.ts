@@ -10,8 +10,9 @@ import * as os from "node:os";
  * Shorten a path by replacing the home directory with ~
  */
 export function shortenPath(p: string): string {
+  const normalized = p.toLowerCase();
   for (const home of [process.env.HOME, process.env.USERPROFILE, os.homedir()]) {
-    if (home && p.startsWith(home)) {
+    if (home && normalized.startsWith(home.toLowerCase())) {
       return `~${p.slice(home.length)}`;
     }
   }
@@ -40,11 +41,13 @@ export function formatTokens(n: number): string {
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-let spinnerIdx = 0;
-function getSpinnerFrame(): string {
-  const frame = SPINNER[spinnerIdx];
-  spinnerIdx = (spinnerIdx + 1) % SPINNER.length;
-  return frame;
+export function createSpinner(): () => string {
+  let idx = 0;
+  return () => {
+    const frame = SPINNER[idx];
+    idx = (idx + 1) % SPINNER.length;
+    return frame;
+  };
 }
 
 export interface UsageStats {
@@ -55,8 +58,8 @@ export interface UsageStats {
   durationMs: number;
 }
 
-export function formatUsage(u: UsageStats): string {
-  const parts: string[] = [`${getSpinnerFrame()} · Turn ${u.turns}`];
+export function formatUsage(u: UsageStats, spin: () => string): string {
+  const parts: string[] = [`${spin()} · Turn ${u.turns}`];
   parts.push(`Tokens: input ${formatTokens(u.input)} | output ${formatTokens(u.output)}`);
   if (u.durationMs) parts.push(formatDuration(u.durationMs));
   return parts.join(" · ");

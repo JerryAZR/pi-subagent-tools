@@ -130,7 +130,7 @@ export async function runSubagent(opts: SpawnOptions): Promise<SpawnResult> {
   let turnCount = 0;
   let tokens = { input: 0, output: 0, total: 0 };
   const toolCallNames: string[] = [];
-  const env: Record<string, string> = { ...process.env };
+  const env: Record<string, string | undefined> = { ...process.env };
   if (opts.childRole) env.PI_SUBAGENT_TOOLS_ROLE = opts.childRole;
 
   const startTime = Date.now();
@@ -145,6 +145,9 @@ export async function runSubagent(opts: SpawnOptions): Promise<SpawnResult> {
     stdio: ["ignore", "pipe", "pipe"],
     env,
   });
+
+  const MAX_MSG_COUNT = 5;
+  const MAX_PREV_LINES = 20;
 
   let lastUpdate = 0;
   let pendingTimer: ReturnType<typeof setTimeout> | null = null;
@@ -191,6 +194,7 @@ export async function runSubagent(opts: SpawnOptions): Promise<SpawnResult> {
     if (event.type === "message_end" && event.message) {
       const msg = event.message as Message & { content: any[] };
       messages.push(msg);
+      if (messages.length > MAX_MSG_COUNT) messages.splice(0, messages.length - MAX_MSG_COUNT);
       if (msg.role === "assistant") {
         turnCount++;
         if (msg.usage) {
@@ -208,16 +212,20 @@ export async function runSubagent(opts: SpawnOptions): Promise<SpawnResult> {
         for (const tc of (msg.content ?? []).filter((c: any) => c.type === "toolCall")) {
           toolCallNames.push(tc.name);
           const parts = [`▸ ${tc.name}`];
-          if (tc.input) {
-            for (const [k, v] of Object.entries(tc.input)) {
+          if (tc.arguments && typeof tc.arguments === "object") {
+            const entries = Object.entries(tc.arguments);
+            const capPerParam = entries.length > 1;
+            for (const [k, v] of entries) {
               const val = typeof v === "string" ? v : JSON.stringify(v);
-              const short = val.length > 40 ? val.slice(0, 37) + "..." : val;
+              const short = capPerParam && val.length > 40 ? val.slice(0, 37) + "..." : val;
               parts.push(`${k}=${short}`);
             }
           }
           let line = parts.join(" ");
           if (line.length > 80) line = line.slice(0, 77) + "...";
-          previousTurnsText = previousTurnsText ? previousTurnsText + `\n${line}` : line;
+          previousTurnsText = previousTurnsText ? `${previousTurnsText}\n${line}` : line;
+          const prevLines = previousTurnsText.split("\n");
+          if (prevLines.length > MAX_PREV_LINES) previousTurnsText = prevLines.slice(-MAX_PREV_LINES).join("\n");
         }
         fireUpdate();
       }
@@ -225,7 +233,7 @@ export async function runSubagent(opts: SpawnOptions): Promise<SpawnResult> {
   };
 
   const exitCode = await new Promise<number>((resolve) => {
-    const killProc = () => { proc.kill("SIGTERM"); setTimeout(() => { if (!proc.killed) proc.kill("SIGKILL"); }, 5000); };
+    const killProc = () => { proc.kill("SIGTERM"); setTimeout(() => { if (!proc.killed) try { proc.kill("SIGKILL"); } catch { /* not supported on all platforms */ } }, 5000); };
     if (opts.signal) {
       if (opts.signal.aborted) killProc();
       else opts.signal.addEventListener("abort", killProc, { once: true });
@@ -241,5 +249,6 @@ export async function runSubagent(opts: SpawnOptions): Promise<SpawnResult> {
   if (exitCode !== 0) return { output: stderr || `Subagent exited with code ${exitCode}`, isError: true, exitCode, tokens, turns: turnCount, toolCalls: toolCallNames, durationMs: Date.now() - startTime };
 
   const output = getFinalOutput(messages);
-  return { output: output || "(no output)", isError: false, exitCode: 0, tokens, turns: turnCount, toolCalls: toolCallNames, durationMs: Date.now() - startTime };
+  const finalOutput = stderr.trim() ? `[stderr]\n${stderr.trim()}\n[/stderr]\n\n${output || "(no output)"}` : (output || "(no output)");
+  return { output: finalOutput, isError: false, exitCode: 0, tokens, turns: turnCount, toolCalls: toolCallNames, durationMs: Date.now() - startTime };
 }
