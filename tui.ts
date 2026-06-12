@@ -36,5 +36,4 @@ export function formatTokens(n: number): string {
   return `${Math.round(n / 1000)}k`;
 }
 
-export const SPINNER = ["|", "/", string_spinner_backslash(), "-"];
-function string_spinner_backslash() { return "\\"; }
+export const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
