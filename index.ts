@@ -198,7 +198,10 @@ function renderSubagentResult(
   if (!options.expanded) {
     const firstLine = output.split("\n").find((l: string) => l.trim())?.trim().slice(0, 120) ?? "(no output)";
     const more = output.length > firstLine.length ? ` ${theme.fg("dim", "(Ctrl+O to expand)")}` : "";
+    const usage = result.details?.usage;
+    const status = usage ? `${usage.turns ?? 0}t · in:${formatTokens(usage.input ?? 0)} out:${formatTokens(usage.output ?? 0)}` : "";
     container.addChild(new Text(`${theme.fg("success", "✓")} ${firstLine}${more}`, 0, 0));
+    if (status) container.addChild(new Text(theme.fg("dim", status), 0, 0));
     return container;
   }
 

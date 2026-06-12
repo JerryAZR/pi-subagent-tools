@@ -139,6 +139,7 @@ export async function runSubagent(opts: SpawnOptions): Promise<SpawnResult> {
 
   const startTime = Date.now();
   let spin = 0;
+  let streamText = "";
 
   const proc = spawn(invocation.command, invocation.args, {
     cwd: opts.cwd,
@@ -147,10 +148,31 @@ export async function runSubagent(opts: SpawnOptions): Promise<SpawnResult> {
     env,
   });
 
+  const fireUpdate = () => {
+    if (!opts.onUpdate) return;
+    const top: string[] = [`${turnCount} turn${turnCount > 1 ? "s" : ""}`];
+    if (tokens.total > 0) top.push(`in:${String(tokens.input).padStart(6)} out:${String(tokens.output).padStart(6)}`);
+    if (toolCallNames.length > 0) top.push(`tool ${[...new Set(toolCallNames)].join(", ")}`);
+    const bottom = streamText.slice(0, 80) || "thinking...";
+    opts.onUpdate({ content: [{ type: "text", text: `${bottom}
+${SPINNER[spin]} ${top.join(" · ")}` }] });
+    spin = (spin + 1) % SPINNER.length;
+  };
+
   const processLine = (line: string) => {
     if (!line.trim()) return;
     let event: any;
     try { event = JSON.parse(line); } catch { return; }
+
+    // Per-token streaming: advance spinner + show text on every message_update
+    if (event.type === "message_update" && event.message) {
+      const text = (event.message.content ?? [])
+        .filter((c: any) => c.type === "text")
+        .map((c: any) => c.text).join("");
+      if (text) streamText = text;
+      fireUpdate();
+    }
+
     if (event.type === "message_end" && event.message) {
       const msg = event.message as Message & { content: any[] };
       messages.push(msg);
@@ -161,21 +183,12 @@ export async function runSubagent(opts: SpawnOptions): Promise<SpawnResult> {
           tokens.output += msg.usage.output || 0;
           tokens.total += msg.usage.totalTokens || 0;
         }
-        if (opts.onUpdate) {
-          const toolCalls = (msg.content ?? []).filter((c: any) => c.type === "toolCall");
-          const textParts = (msg.content ?? []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("");
-          const top: string[] = [`${turnCount} turn${turnCount > 1 ? "s" : ""}`];
-          if (tokens.total > 0) top.push(`in:${String(tokens.input).padStart(6)} out:${String(tokens.output).padStart(6)}`);
-          if (toolCalls.length > 0) {
-            for (const c of toolCalls) toolCallNames.push(c.name);
-            top.push(`tool ${toolCalls.map((c: any) => c.name).join(", ")}`);
-          }
-          // Bottom line: latest output or placeholder (stable height)
-          const bottom = textParts ? textParts.slice(0, 80) : "thinking...";
-          opts.onUpdate({ content: [{ type: "text", text: `${bottom}
-${SPINNER[spin]} ${top.join(" · ")}` }] });
-          spin = (spin + 1) % SPINNER.length;
+        const text = (msg.content ?? []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("");
+        if (text) streamText = text;
+        for (const tc of (msg.content ?? []).filter((c: any) => c.type === "toolCall")) {
+          toolCallNames.push(tc.name);
         }
+        fireUpdate();
       }
     }
   };
