@@ -16,7 +16,7 @@ import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
+import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import {
   runSubagent,
@@ -202,7 +202,7 @@ function renderSubagentResult(
 
   container.addChild(new Text(theme.fg("muted", "─── Result ───"), 0, 0));
   container.addChild(new Spacer(1));
-  container.addChild(new Markdown(output, 0, 0));
+  container.addChild(new Text(output, 0, 0));
 
   if (result.details?.usage) {
     const parts: string[] = [];
