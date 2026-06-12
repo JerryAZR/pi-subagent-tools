@@ -1,0 +1,49 @@
+{
+  "name": "pi-subagent-tools",
+  "version": "0.1.0",
+  "description": "Minimal pi extension: delegate, review, and explore via isolated subagent processes",
+  "type": "module",
+  "main": "index.ts",
+  "files": [
+    "index.ts",
+    "spawn.ts",
+    "tui.ts",
+    "prompts/*.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "pi",
+    "pi-extension",
+    "pi-package",
+    "subagent",
+    "delegate",
+    "review",
+    "explore"
+  ],
+  "license": "MIT",
+  "author": "",
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test test/*.test.ts"
+  },
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "^0.74.0",
+    "@earendil-works/pi-coding-agent": "^0.74.0",
+    "@earendil-works/pi-tui": "^0.74.0",
+    "@sinclair/typebox": "^0.34.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  }
+}
