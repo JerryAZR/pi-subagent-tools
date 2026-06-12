@@ -7,7 +7,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Message } from "@earendil-works/pi-ai";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
-import { formatTokens } from "./tui.ts";
+import { formatTokens, SPINNER } from "./tui.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -174,7 +174,7 @@ export async function runSubagent(opts: SpawnOptions): Promise<SpawnResult> {
           if (textParts) {
             parts.push(textParts.length > 40 ? textParts.slice(0, 40) + "..." : textParts);
           }
-          opts.onUpdate({ content: [{ type: "text", text: parts.join(" · ") }] });
+          opts.onUpdate({ content: [{ type: "text", text: SPINNER[spin] + " " + parts.join(" · ") }] }); spin = (spin + 1) % SPINNER.length;
         }
       }
     }
