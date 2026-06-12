@@ -63,7 +63,7 @@ Subagents cannot spawn further subagents beyond one level:
 ## Related
 
 - **[pi-subagents](https://github.com/nicobailon/pi-subagents)** — Feature-rich implementation with agent definitions, background runs, session forking, inter-process communication, and a full management UI. The definitive reference for what's possible, though possibly more than most workflows need.
-- **[pi-subagent-lite](https://github.com/JerryAZR/pi-subagent-lite)** — Ultra-minimal prototype (~250 lines). A single `task` tool. The experiment that validated the spawn-based approach.
+- **[pi-subagent-lite](https://github.com/JerryAZR/pi-subagent-lite)** — Ultra-minimal prototype (~250 lines). A single `task` tool with no prompt inflation. The subagent doesn't even know it's a subagent — just gets a task and runs.
 
 ## License
 
