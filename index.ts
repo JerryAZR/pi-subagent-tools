@@ -148,7 +148,7 @@ async function subagentExecute(
     // Fire final summary update for clean UI transition
     if (onUpdate && !result.isError) {
       const parts: string[] = [`${result.turns} turn${result.turns > 1 ? "s" : ""}`];
-      if (result.tokens?.total) parts.push(`${formatTokens(result.tokens.total)} tok`);
+      if (result.tokens?.total) parts.push(`in: ${formatTokens(result.tokens.input ?? 0)} / out: ${formatTokens(result.tokens.output ?? 0)}`);
       parts.push("done");
       onUpdate({ content: [{ type: "text", text: parts.join(" · ") }] });
     }
@@ -215,7 +215,7 @@ function renderSubagentResult(
   if (result.details?.usage) {
     const parts: string[] = [];
     if (result.details.usage.turns) parts.push(`${result.details.usage.turns} turn${result.details.usage.turns > 1 ? "s" : ""}`);
-    if (result.details.usage.total) parts.push(formatTokens(result.details.usage.total) + " tok");
+    if (result.details.usage.total) parts.push(`in: ${formatTokens(result.details.usage.input ?? 0)} / out: ${formatTokens(result.details.usage.output ?? 0)}`);
     if (result.details.usage.durationMs) parts.push(formatDuration(result.details.usage.durationMs));
     if (parts.length) {
       container.addChild(new Spacer(1));
