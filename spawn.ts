@@ -164,18 +164,17 @@ export async function runSubagent(opts: SpawnOptions): Promise<SpawnResult> {
         if (opts.onUpdate) {
           const toolCalls = (msg.content ?? []).filter((c: any) => c.type === "toolCall");
           const textParts = (msg.content ?? []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("");
-          const parts: string[] = [`${turnCount} turn${turnCount > 1 ? "s" : ""}`];
-          if (tokens.total > 0) parts.push(`in: ${formatTokens(tokens.input)} / out: ${formatTokens(tokens.output)}`);
+          const top: string[] = [`${turnCount} turn${turnCount > 1 ? "s" : ""}`];
+          if (tokens.total > 0) top.push(`in:${String(tokens.input).padStart(6)} out:${String(tokens.output).padStart(6)}`);
           if (toolCalls.length > 0) {
             for (const c of toolCalls) toolCallNames.push(c.name);
-            const counts = new Map<string, number>();
-            for (const c of toolCalls) counts.set(c.name, (counts.get(c.name) || 0) + 1);
-            parts.push(`tool ${Array.from(counts.entries()).map(([n, c]) => c > 1 ? `${n} (x${c})` : n).join(", ")}`);
+            top.push(`tool ${toolCalls.map((c: any) => c.name).join(", ")}`);
           }
-          if (textParts) {
-            parts.push(textParts.length > 40 ? textParts.slice(0, 40) + "..." : textParts);
-          }
-          opts.onUpdate({ content: [{ type: "text", text: SPINNER[spin] + " " + parts.join(" · ") }] }); spin = (spin + 1) % SPINNER.length;
+          // Bottom line: latest output or placeholder (stable height)
+          const bottom = textParts ? textParts.slice(0, 80) : "thinking...";
+          opts.onUpdate({ content: [{ type: "text", text: `${SPINNER[spin]} ${top.join(" · ")}
+${bottom}` }] });
+          spin = (spin + 1) % SPINNER.length;
         }
       }
     }
