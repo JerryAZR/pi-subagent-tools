@@ -16,13 +16,13 @@ import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import {
   runSubagent,
   READONLY_TOOLS,
 } from "./spawn.ts";
-import { shortenPath } from "./tui.ts";
+import { shortenPath, formatDuration, formatTokens } from "./tui.ts";
 
 const EXTENSION_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PROMPTS_DIR = path.resolve(EXTENSION_DIR, "prompts");
@@ -148,6 +148,14 @@ async function subagentExecute(
     return {
       content: [{ type: "text" as const, text: result.output }],
       isError: result.isError,
+      details: {
+        usage: {
+          turns: result.turns,
+          total: result.tokens?.total,
+          input: result.tokens?.input,
+          output: result.tokens?.output,
+        },
+      },
     };
   } catch (err: any) {
     return {
@@ -158,6 +166,56 @@ async function subagentExecute(
       isError: true,
     };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Shared render helpers
+// ---------------------------------------------------------------------------
+
+function renderSubagentCall(
+  label: string,
+  args: { task: string; cwd?: string },
+  theme: any,
+) {
+  const preview = args.task.length > 60 ? args.task.slice(0, 60) + "..." : args.task;
+  const cwdPart = args.cwd ? ` ${theme.fg("muted", shortenPath(args.cwd))}` : "";
+  return new Text(
+    `${theme.fg("toolTitle", theme.bold(label))}${theme.fg("dim", preview)}${cwdPart}`,
+    0, 0,
+  );
+}
+
+function renderSubagentResult(
+  result: { content: Array<{ type: string; text?: string }>; isError?: boolean; details?: any },
+  options: { expanded: boolean },
+  theme: any,
+) {
+  const output = result.content.find((c: any) => c.type === "text")?.text ?? "";
+  const container = new Container();
+
+  if (!options.expanded) {
+    const firstLine = output.split("\n").find((l: string) => l.trim())?.trim().slice(0, 120) ?? "(no output)";
+    const more = output.length > firstLine.length ? ` ${theme.fg("dim", "(Ctrl+O to expand)")}` : "";
+    container.addChild(new Text(`${theme.fg("success", "✓")} ${firstLine}${more}`, 0, 0));
+    return container;
+  }
+
+  container.addChild(new Text(theme.fg("muted", "─── Result ───"), 0, 0));
+  container.addChild(new Spacer(1));
+  container.addChild(new Markdown(output, 0, 0));
+
+  if (result.details?.usage) {
+    const parts: string[] = [];
+    if (result.details.usage.turns) parts.push(`${result.details.usage.turns} turn${result.details.usage.turns > 1 ? "s" : ""}`);
+    if (result.details.usage.total) parts.push(formatTokens(result.details.usage.total) + " tok");
+    if (result.details.usage.durationMs) parts.push(formatDuration(result.details.usage.durationMs));
+    if (parts.length) {
+      container.addChild(new Spacer(1));
+      container.addChild(new Text(theme.fg("dim", parts.join(" · ")), 0, 0));
+    }
+  }
+
+  return container;
 }
 
 // ---------------------------------------------------------------------------
@@ -237,15 +295,8 @@ export default function (pi: ExtensionAPI) {
         onUpdate,
       );
     },
-    renderCall(args, theme) {
-      const preview = args.task.length > 60 ? args.task.slice(0, 60) + "..." : args.task;
-      const cwdPart = args.cwd ? ` ${theme.fg("muted", shortenPath(args.cwd))}` : "";
-      return new Text(`${theme.fg("toolTitle", theme.bold("delegate "))}${theme.fg("dim", preview)}${cwdPart}`, 0, 0);
-    },
-    renderResult(result, _options, theme) {
-      const output = result.content.find((c: any) => c.type === "text")?.text ?? "";
-      return new Text(`${theme.fg("success", "✓")} ${output}`, 0, 0);
-    },
+    renderCall: (args, theme) => renderSubagentCall("delegate ", args, theme),
+    renderResult: (result, options, theme) => renderSubagentResult(result as any, options, theme),
   });
 
   // Review tool
@@ -274,20 +325,8 @@ export default function (pi: ExtensionAPI) {
         onUpdate,
       );
     },
-    renderCall(args, theme) {
-      const preview =
-        args.task.length > 60 ? args.task.slice(0, 60) + "..." : args.task;
-      return new Text(
-        `${theme.fg("toolTitle", theme.bold("review "))}${theme.fg("dim", preview)}`,
-        0,
-        0,
-      );
-    },
-    renderResult(result, _options, theme) {
-      const output =
-        result.content.find((c: any) => c.type === "text")?.text ?? "";
-      return new Text(`${theme.fg("success", "✓")} ${output}`, 0, 0);
-    },
+    renderCall: (args, theme) => renderSubagentCall("review ", args, theme),
+    renderResult: (result, options, theme) => renderSubagentResult(result as any, options, theme),
   });
 
   // Explore tool
@@ -316,19 +355,7 @@ export default function (pi: ExtensionAPI) {
         onUpdate,
       );
     },
-    renderCall(args, theme) {
-      const preview =
-        args.task.length > 60 ? args.task.slice(0, 60) + "..." : args.task;
-      return new Text(
-        `${theme.fg("toolTitle", theme.bold("explore "))}${theme.fg("dim", preview)} ${theme.fg("muted", shortenPath(args.cwd))}`,
-        0,
-        0,
-      );
-    },
-    renderResult(result, _options, theme) {
-      const output =
-        result.content.find((c: any) => c.type === "text")?.text ?? "";
-      return new Text(`${theme.fg("success", "✓")} ${output}`, 0, 0);
-    },
+    renderCall: (args, theme) => renderSubagentCall("explore ", args, theme),
+    renderResult: (result, options, theme) => renderSubagentResult(result as any, options, theme),
   });
 }
