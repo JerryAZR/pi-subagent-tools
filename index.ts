@@ -24,9 +24,11 @@ import {
 } from "./spawn.ts";
 import { shortenPath } from "./tui.ts";
 
-const PROMPTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "prompts");
+const EXTENSION_DIR = path.dirname(fileURLToPath(import.meta.url));
+const PROMPTS_DIR = path.resolve(EXTENSION_DIR, "prompts");
 const REVIEW_PROMPT_FILE = path.join(PROMPTS_DIR, "review.md");
 const EXPLORE_PROMPT_FILE = path.join(PROMPTS_DIR, "explore.md");
+const EXTENSION_FILE = path.join(EXTENSION_DIR, "index.ts");
 
 // Role guard
 // ---------------------------------------------------------------------------
@@ -103,6 +105,7 @@ async function subagentExecute(
   task: string,
   skills: string[] | undefined,
   allowedTools: string[] | undefined,
+  extensionFile: string | undefined,
   systemPromptFile: string | undefined,
   childRole: "review" | "explore" | "delegate" | undefined,
   signal: AbortSignal | undefined,
@@ -136,6 +139,7 @@ async function subagentExecute(
       task,
       skills,
       allowedTools,
+      extensionFile,
       systemPromptFile,
       childRole,
       signal,
@@ -226,6 +230,7 @@ export default function (pi: ExtensionAPI) {
         params.task,
         params.skills,
         undefined, // no tool filtering — cache-compatible
+        undefined, // no extension — delegate children don't need git tool
         undefined, // no system prompt — cache-compatible
         "delegate", // delegate children can spawn review/explore but not delegate further
         signal,
@@ -262,6 +267,7 @@ export default function (pi: ExtensionAPI) {
         params.task,
         params.skills,
         READONLY_TOOLS,
+        EXTENSION_FILE,
         REVIEW_PROMPT_FILE,
         "review",
         signal,
@@ -303,6 +309,7 @@ export default function (pi: ExtensionAPI) {
         params.task,
         params.skills,
         READONLY_TOOLS,
+        EXTENSION_FILE,
         EXPLORE_PROMPT_FILE,
         "explore",
         signal,

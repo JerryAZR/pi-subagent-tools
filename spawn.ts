@@ -17,8 +17,8 @@ export interface SpawnOptions {
   task: string;
   skills?: string[];
   allowedTools?: string[];
+  extensionFile?: string;
   systemPromptFile?: string;
-  sessionFile?: string;
   childRole?: "review" | "explore" | "delegate";
   signal?: AbortSignal;
   onUpdate?: (result: AgentToolResult) => void;
@@ -86,6 +86,10 @@ export function buildSpawnArgs(opts: SpawnOptions): string[] {
 
   for (const skill of opts.skills ?? []) {
     args.push("--skill", skill);
+  }
+
+  if (opts.extensionFile) {
+    args.push("--extension", opts.extensionFile);
   }
 
   if (opts.systemPromptFile) {
