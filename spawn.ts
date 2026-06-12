@@ -138,6 +138,7 @@ export async function runSubagent(opts: SpawnOptions): Promise<SpawnResult> {
   if (opts.childRole) env.PI_SUBAGENT_TOOLS_ROLE = opts.childRole;
 
   const startTime = Date.now();
+  let spin = 0;
 
   const proc = spawn(invocation.command, invocation.args, {
     cwd: opts.cwd,
