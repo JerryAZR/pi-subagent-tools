@@ -145,6 +145,13 @@ async function subagentExecute(
       signal,
       onUpdate,
     });
+    // Fire final summary update for clean UI transition
+    if (onUpdate && !result.isError) {
+      const parts: string[] = [`${result.turns} turn${result.turns > 1 ? "s" : ""}`];
+      if (result.tokens?.total) parts.push(`${formatTokens(result.tokens.total)} tok`);
+      parts.push("done");
+      onUpdate({ content: [{ type: "text", text: parts.join(" · ") }] });
+    }
     return {
       content: [{ type: "text" as const, text: result.output }],
       isError: result.isError,
@@ -155,6 +162,7 @@ async function subagentExecute(
           input: result.tokens?.input,
           output: result.tokens?.output,
         },
+        toolCalls: result.toolCalls,
       },
     };
   } catch (err: any) {

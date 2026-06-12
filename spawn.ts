@@ -7,6 +7,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Message } from "@earendil-works/pi-ai";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
+import { formatTokens } from "./tui.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -30,6 +31,7 @@ export interface SpawnResult {
   exitCode: number;
   tokens?: { input: number; output: number; total: number };
   turns: number;
+  toolCalls: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -130,6 +132,7 @@ export async function runSubagent(opts: SpawnOptions): Promise<SpawnResult> {
   const messages: Message[] = [];
   let turnCount = 0;
   let tokens = { input: 0, output: 0, total: 0 };
+  const toolCallNames: string[] = [];
   const env: Record<string, string> = { ...process.env };
   if (opts.childRole) env.PI_SUBAGENT_TOOLS_ROLE = opts.childRole;
 
@@ -157,18 +160,18 @@ export async function runSubagent(opts: SpawnOptions): Promise<SpawnResult> {
         if (opts.onUpdate) {
           const toolCalls = (msg.content ?? []).filter((c: any) => c.type === "toolCall");
           const textParts = (msg.content ?? []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("");
-          let updateText = "";
+          const parts: string[] = [`${turnCount} turn${turnCount > 1 ? "s" : ""}`];
+          if (tokens.total > 0) parts.push(`${formatTokens(tokens.total)} tok`);
           if (toolCalls.length > 0) {
+            for (const c of toolCalls) toolCallNames.push(c.name);
             const counts = new Map<string, number>();
             for (const c of toolCalls) counts.set(c.name, (counts.get(c.name) || 0) + 1);
-            updateText = `Turn ${turnCount}: ${Array.from(counts.entries()).map(([n, c]) => c > 1 ? `${n} (x${c})` : n).join(", ")}`;
-          } else {
-            updateText = `Turn ${turnCount}: thinking...`;
+            parts.push(`tool ${Array.from(counts.entries()).map(([n, c]) => c > 1 ? `${n} (x${c})` : n).join(", ")}`);
           }
           if (textParts) {
-            updateText += `\n${textParts.length > 60 ? textParts.slice(0, 60) + "..." : textParts}`;
+            parts.push(textParts.length > 40 ? textParts.slice(0, 40) + "..." : textParts);
           }
-          opts.onUpdate({ content: [{ type: "text", text: updateText }] });
+          opts.onUpdate({ content: [{ type: "text", text: parts.join(" · ") }] });
         }
       }
     }
@@ -187,10 +190,10 @@ export async function runSubagent(opts: SpawnOptions): Promise<SpawnResult> {
     proc.on("error", (err) => { if (opts.signal) opts.signal.removeEventListener("abort", killProc); spawnError = err.message; resolve(1); });
   });
 
-  if (opts.signal?.aborted) return { output: "Subagent was aborted", isError: true, exitCode: 1, tokens, turns: turnCount };
-  if (spawnError) return { output: `Failed to start subagent: ${spawnError}`, isError: true, exitCode: 1, tokens, turns: turnCount };
-  if (exitCode !== 0) return { output: stderr || `Subagent exited with code ${exitCode}`, isError: true, exitCode, tokens, turns: turnCount };
+  if (opts.signal?.aborted) return { output: "Subagent was aborted", isError: true, exitCode: 1, tokens, turns: turnCount, toolCalls: toolCallNames };
+  if (spawnError) return { output: `Failed to start subagent: ${spawnError}`, isError: true, exitCode: 1, tokens, turns: turnCount, toolCalls: toolCallNames };
+  if (exitCode !== 0) return { output: stderr || `Subagent exited with code ${exitCode}`, isError: true, exitCode, tokens, turns: turnCount, toolCalls: toolCallNames };
 
   const output = getFinalOutput(messages);
-  return { output: output || "(no output)", isError: false, exitCode: 0, tokens, turns: turnCount };
+  return { output: output || "(no output)", isError: false, exitCode: 0, tokens, turns: turnCount, toolCalls: toolCallNames };
 }
