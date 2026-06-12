@@ -1,5 +1,5 @@
 {
-  "name": "pi-subagent-tools",
+  "name": "@jerryan/pi-subagent-tools",
   "version": "0.1.0",
   "description": "Minimal pi extension: delegate, review, and explore via isolated subagent processes",
   "type": "module",
@@ -22,10 +22,13 @@
     "explore"
   ],
   "license": "MIT",
-  "author": "",
+  "author": "Zerui An",
   "repository": {
     "type": "git",
-    "url": ""
+    "url": "https://github.com/JerryAZR/pi-subagent-tools"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
     "pretest": "node -e \"const{cp}=require('fs');cp('test/mocks/@earendil-works','node_modules/@earendil-works',{recursive:true},()=>{})\"",
