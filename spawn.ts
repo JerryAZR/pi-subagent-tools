@@ -172,8 +172,8 @@ export async function runSubagent(opts: SpawnOptions): Promise<SpawnResult> {
           }
           // Bottom line: latest output or placeholder (stable height)
           const bottom = textParts ? textParts.slice(0, 80) : "thinking...";
-          opts.onUpdate({ content: [{ type: "text", text: `${SPINNER[spin]} ${top.join(" · ")}
-${bottom}` }] });
+          opts.onUpdate({ content: [{ type: "text", text: `${bottom}
+${SPINNER[spin]} ${top.join(" · ")}` }] });
           spin = (spin + 1) % SPINNER.length;
         }
       }
