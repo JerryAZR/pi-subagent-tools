@@ -230,7 +230,7 @@ export default function (pi: ExtensionAPI) {
         params.task,
         params.skills,
         undefined, // no tool filtering — cache-compatible
-        undefined, // no extension — delegate children don't need git tool
+        EXTENSION_FILE, // same extensions → same system prompt → cache hit
         undefined, // no system prompt — cache-compatible
         "delegate", // delegate children can spawn review/explore but not delegate further
         signal,
