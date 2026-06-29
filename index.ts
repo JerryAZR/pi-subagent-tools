@@ -60,6 +60,7 @@ export class CompactPreview {
 const PROMPTS_DIR = path.resolve(EXTENSION_DIR, "prompts");
 const REVIEW_PROMPT_FILE = path.join(PROMPTS_DIR, "review.md");
 const EXPLORE_PROMPT_FILE = path.join(PROMPTS_DIR, "explore.md");
+const DELEGATE_PROMPT_FILE = path.join(PROMPTS_DIR, "delegate.md");
 const EXTENSION_FILE = path.join(EXTENSION_DIR, "index.ts");
 
 // Role guard
@@ -355,8 +356,8 @@ export default function (pi: ExtensionAPI) {
         params.task,
         params.skills,
         undefined, // no tool filtering — cache-compatible
-        EXTENSION_FILE, // same extensions → same system prompt → cache hit
-        undefined, // no system prompt — cache-compatible
+        EXTENSION_FILE,
+        DELEGATE_PROMPT_FILE,
         "delegate", // delegate children can spawn review/explore but not delegate further
         signal,
         onUpdate,
