@@ -1,6 +1,6 @@
 {
   "name": "@jerryan/pi-subagent-tools",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Minimal pi extension: delegate, review, and explore via isolated subagent processes",
   "type": "module",
   "main": "index.ts",
@@ -9,6 +9,7 @@
     "spawn.ts",
     "tui.ts",
     "prompts/*.md",
+    "CHANGELOG.md",
     "README.md",
     "LICENSE"
   ],
