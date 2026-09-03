@@ -5,7 +5,6 @@
  *   - Parameter schemas (including follow_up)
  *   - System prompt content
  *   - TUI helpers and preview component
- *   - Public exports
  */
 
 import { describe, it } from "node:test";

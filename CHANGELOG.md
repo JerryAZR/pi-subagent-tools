@@ -16,8 +16,8 @@
   `read` + `bash`; the sandboxed `bash` shadows the builtin (custom tools
   win over builtins), so there is no configuration in which a raw builtin
   bash reaches a read-only child.
-- The dedicated `git` tool and its policy table are removed; git inspection
-  (log, diff, show, blame, grep, ls-files) goes through the sandbox.
+- The dedicated `git` tool is removed; git inspection (log, diff, show,
+  blame, grep, ls-files) goes through the sandbox.
   Known limitation: `git status` is slow in large repositories (upstream
   just-git walks the full worktree without ignore-pruning); the tool
   description steers agents to targeted commands.

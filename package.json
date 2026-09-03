@@ -8,7 +8,7 @@
     "index.ts",
     "agents.ts",
     "render.ts",
-    "git-tool.ts",
+    "sandbox-bash.ts",
     "ui-bridge.ts",
     "tui.ts",
     "prompts/*.md",

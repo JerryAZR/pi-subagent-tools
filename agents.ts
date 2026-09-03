@@ -29,12 +29,13 @@
  *
  * Recursion
  * ─────────
- * Structural, not env-based. Child sessions are created with
- * noExtensions: true, so nothing is discovered — a child gets exactly the
- * tools injected here:
- *   - review/explore children: read-only builtins + git customTool (leaf)
- *   - delegate children: review/explore/follow_up via an inline extension
- *     factory; delegate is registered but rejects
+ * Structural, not env-based. Review/explore children are created with
+ * noExtensions: true — they get exactly the tools injected here (read +
+ * sandboxed bash) and are leaves. Delegate children discover user/project
+ * extensions like a fresh pi (guard extensions included), minus this
+ * extension itself — self-exclusion is the recursion guard — and get
+ * review/explore/follow_up via an inline extension factory; their
+ * delegate tool is registered but rejects.
  */
 
 import * as fs from "node:fs";

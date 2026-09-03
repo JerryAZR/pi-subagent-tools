@@ -86,7 +86,7 @@ follow_up  agent, task              (agent's own tools)   (agent's own cwd)
 
 The sandboxed `bash` is a read-only just-bash environment (project root
 mounted at `/repo`, ~80 utilities, git with no network, stateless per call).
-See "read-only is enforced at the capability layer" in DESIGN.md.
+See "read-only is enforced at the capability layer" below.
 
 ### `review`
 
@@ -222,11 +222,10 @@ index.ts       — Extension entry. Creates the AgentManager, registers tools.
 agents.ts      — AgentManager (registry, lifetime, spawn/follow-up), session
                  creation, progress bridging, tool registration, schemas.
 sandbox-bash.ts — The read-only bash tool for review/explore children
-                 (just-bash + just-git over a read-only OverlayFs).
+                 (just-bash + just-git over a composed read-only FS).
 ui-bridge.ts   — ExtensionUIContext forwarding child prompts to the parent
                  TUI. Process-wide dialog serialization queue.
 render.ts      — Tool call/result rendering (CompactPreview, usage footer).
-git-tool.ts    — Read-only git customTool for review/explore children.
 tui.ts         — Formatting helpers (shortenPath, formatDuration, formatTokens).
 prompts/       — Static system prompt files shipped with the extension.
 ```

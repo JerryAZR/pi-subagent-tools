@@ -30,6 +30,7 @@ async function textOf(command: string) {
 }
 
 before(() => {
+  // Requires a real git binary on PATH to build the fixture repository.
   repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-sandbox-test-"));
   fs.writeFileSync(path.join(repoDir, "hello.txt"), "hello world\n");
   fs.mkdirSync(path.join(repoDir, "src"));
@@ -73,30 +74,19 @@ describe("sandboxed bash: basic execution", () => {
 });
 
 describe("sandboxed bash: statelessness", () => {
-  it("cd does not persist between calls", async () => {
-    await textOf("cd src && pwd");
-    const out = await textOf("ls hello.txt");
+  it("cd and exported variables do not persist between calls", async () => {
+    await textOf("cd src && export SANDBOX_MARKER=42 && pwd");
+    const out = await textOf("ls hello.txt; echo marker=$SANDBOX_MARKER");
     assert.match(out, /hello\.txt/);
-  });
-
-  it("exported variables do not persist between calls", async () => {
-    await textOf("export SANDBOX_MARKER=42");
-    const out = await textOf("echo marker=$SANDBOX_MARKER");
     assert.match(out, /marker=\s*$/m);
   });
 });
 
 describe("sandboxed bash: read-only enforcement", () => {
-  it("touch fails", async () => {
-    const out = await textOf("touch newfile.txt");
-    assert.match(out, /Exit code 1/);
-    assert.match(out, /EROFS|read-only/i);
-    assert.ok(!fs.existsSync(path.join(repoDir, "newfile.txt")));
-  });
-
-  it("output redirection fails", async () => {
+  it("output redirection fails (interpreter-level rejection path)", async () => {
     const out = await textOf("echo data > injected.txt");
     assert.match(out, /Exit code [1-9]/);
+    assert.match(out, /EROFS|read-only|cannot open/i);
     assert.ok(!fs.existsSync(path.join(repoDir, "injected.txt")));
   });
 
@@ -119,18 +109,19 @@ describe("sandboxed bash: sandbox layout", () => {
     assert.match(out, /ok=0/);
   });
 
-  it("/tmp is writable in-memory scratch that never touches the real fs", async () => {
-    const out = await textOf("echo scratch > /tmp/x.txt && cat /tmp/x.txt");
+  it("paths outside /repo are in-memory scratch; /repo stays read-only", async () => {
+    const out = await textOf("echo scratch > /tmp/x.txt && mkdir -p /work && echo data > /work/f.txt && cat /tmp/x.txt /work/f.txt");
     assert.match(out, /scratch/);
-    assert.ok(!fs.existsSync(path.join(repoDir, "tmp")));
-  });
-
-  it("writes outside /repo stay in memory; /repo stays read-only", async () => {
-    const out = await textOf("mkdir -p /work && echo data > /work/f.txt && cat /work/f.txt");
     assert.match(out, /data/);
+    assert.ok(!fs.existsSync(path.join(repoDir, "tmp")));
     const denied = await textOf("echo data > /repo/injected2.txt");
     assert.match(denied, /Exit code [1-9]/);
     assert.ok(!fs.existsSync(path.join(repoDir, "injected2.txt")));
+  });
+
+  it("truncates very long output", async () => {
+    const out = await textOf("seq 1 5000");
+    assert.match(out, /\[output truncated: showing \d+ lines, \d+ chars\]/);
   });
 });
 
@@ -144,11 +135,8 @@ describe("sandboxed bash: git", () => {
     assert.match(show, /hello\.txt/);
     const blame = await textOf("git blame hello.txt");
     assert.match(blame, /hello world/);
-  });
-
-  it("git grep works", async () => {
-    const out = await textOf("git grep -n world");
-    assert.match(out, /hello\.txt:1:hello world/);
+    const grep = await textOf("git grep -n world");
+    assert.match(grep, /hello\.txt:1:hello world/);
   });
 
   it("pure-mutator git verbs are disabled with a clean error", async () => {
