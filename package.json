@@ -1,12 +1,15 @@
 {
   "name": "@jerryan/pi-subagent-tools",
-  "version": "0.1.1",
-  "description": "Minimal pi extension: delegate, review, and explore via isolated subagent processes",
+  "version": "0.2.0",
+  "description": "Minimal pi extension: delegate, review, and explore via in-process subagent sessions",
   "type": "module",
   "main": "index.ts",
   "files": [
     "index.ts",
-    "spawn.ts",
+    "agents.ts",
+    "render.ts",
+    "git-tool.ts",
+    "ui-bridge.ts",
     "tui.ts",
     "prompts/*.md",
     "CHANGELOG.md",
@@ -32,23 +35,26 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "pretest": "node -e \"const{cp}=require('fs');cp('test/mocks/@earendil-works','node_modules/@earendil-works',{recursive:true},()=>{})\"",
-    "test": "node --experimental-strip-types --test test/*.test.ts"
+    "test": "node --experimental-strip-types --import ./test/register-mocks.mjs --test test/*.test.ts"
   },
   "pi": {
-    "extensions": ["./index.ts"]
+    "extensions": [
+      "./index.ts"
+    ]
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": "*",
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*"
+    "@earendil-works/pi-ai": ">=0.84.0",
+    "@earendil-works/pi-coding-agent": ">=0.84.0",
+    "@earendil-works/pi-tui": ">=0.84.0"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "^0.74.0",
-    "@earendil-works/pi-coding-agent": "^0.74.0",
-    "@earendil-works/pi-tui": "^0.74.0",
+    "@earendil-works/pi-ai": "^0.84.4",
+    "@earendil-works/pi-coding-agent": "^0.84.4",
+    "@earendil-works/pi-tui": "^0.84.4",
     "@sinclair/typebox": "^0.34.0",
     "@types/node": "^20.0.0",
+    "just-bash": "^3.4.2",
+    "just-git": "^1.8.0",
     "typescript": "^5.4.0"
   }
 }

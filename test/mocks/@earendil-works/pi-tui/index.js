@@ -56,17 +56,3 @@ export class Markdown {
   }
   invalidate() {}
 }
-
-// Stub theme helpers
-export function createMockTheme() {
-  const fg = (_key, text) => text;
-  const theme = (key, text) => text;
-  theme.fg = fg;
-  theme.bold = (text) => text;
-  return theme;
-}
-
-export function truncateToWidth(str, width, ellipsis = "...") {
-  if (str.length <= width) return str;
-  return str.slice(0, width - ellipsis.length) + ellipsis;
-}

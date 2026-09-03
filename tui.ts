@@ -39,28 +39,35 @@ export function formatTokens(n: number): string {
   return s.padStart(6);
 }
 
+/** Cap a string at max chars, replacing overflow with "...". */
+export function truncate(s: string, max: number): string {
+  return s.length > max ? s.slice(0, max - 3) + "..." : s;
+}
+
+/** Prefix marking tool-call summary lines in subagent progress text. */
+export const TOOL_LINE_PREFIX = "▸";
+
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-export function createSpinner(): () => string {
-  let idx = 0;
-  return () => {
-    const frame = SPINNER[idx];
-    idx = (idx + 1) % SPINNER.length;
-    return frame;
-  };
+/**
+ * Time-derived spinner frame. Stateless — no per-caller state to create,
+ * leak, or clean up. All concurrent spinners share the global clock, which
+ * is visually indistinguishable from per-caller frames.
+ */
+export function spinnerFrame(): string {
+  return SPINNER[Math.floor(Date.now() / 100) % SPINNER.length];
 }
 
 export interface UsageStats {
   turns: number;
   input: number;
   output: number;
-  total: number;
   durationMs: number;
 }
 
 export function formatUsage(u: UsageStats, spin: () => string): string {
   const parts: string[] = [`${spin()} · Turn ${u.turns}`];
   parts.push(`Tokens: input ${formatTokens(u.input)} | output ${formatTokens(u.output)}`);
-  if (u.durationMs != null) parts.push(formatDuration(u.durationMs));
+  parts.push(formatDuration(u.durationMs));
   return parts.join(" · ");
 }

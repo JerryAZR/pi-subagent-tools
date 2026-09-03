@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.2.0
+
+**Subagents now run in-process** via the pi SDK (`createAgentSession`) instead
+of as spawned `pi` subprocesses. Requires pi >= 0.84.
+
+- **New `follow_up` tool.** Every spawn result includes an agent id
+  (e.g. `delegate-1`). `follow_up({ agent, task })` continues that agent's
+  session with full context — for refining work, asking questions, or
+  recovering from incomplete/failed results. Agents keep their original role,
+  tools, and cwd for life.
+- **Interactive prompts route to the parent TUI.** Subagent `select` /
+  `confirm` / `input` / `editor` requests are bridged to the parent's UI
+  instead of silently falling back to defaults (ui-bridge.ts).
+- **Agent lifetime management.** Agents are kept in a registry and disposed
+  only after 10+ idle turns (running agents are never disposed), or when the
+  owning session ends.
+- Tool errors are now reported by throwing, matching pi >= 0.84 tool semantics.
+- The read-only git tool is fully async (subagents share the parent's event
+  loop; a blocking exec would freeze the TUI), and its read-only enforcement
+  is now a per-subcommand policy table — mutating flags (`branch -D`,
+  `diff --output=...`) and branch creation via positional args are rejected.
+
+Breaking changes:
+
+- Removed `delegate`'s `context` parameter (was a no-op placeholder).
+- Recursion guard is now structural (child sessions get exactly the tools
+  injected by the extension) — the `PI_SUBAGENT_TOOLS_ROLE` env var is gone.
+- Child sessions no longer load user/project extensions (created with
+  `noExtensions: true`); skills and system prompts still apply. **Exception:**
+  delegate children DO discover user/project extensions (they are workers and
+  need the parent's environment, including guard extensions) — with this
+  extension itself excluded from discovery (that exclusion is the recursion
+  guard) and project-local extensions excluded in untrusted projects.
+
 ## 0.1.1
 
 - Add delegate system prompt. Subagents now do the work directly instead of discussing plans. Minor uncertainties proceed with stated assumptions; major obstacles are reported back with a suggestion to re-delegate.

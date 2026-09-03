@@ -14,12 +14,12 @@ After each test, check the subagent output for correctness.
 
 **Prompt:**
 ```
-Use the review tool to check spawn.ts for error handling issues. Focus on silent error swallowing.
+Use the review tool to check agents.ts for error handling issues. Focus on silent error swallowing.
 ```
 
 **Expect:**
 - A `review` tool call appears
-- The reviewer spawns and inspects spawn.ts
+- The reviewer spawns and inspects agents.ts
 - Output includes findings about error handling (or confirms no issues)
 - Tool card shows `review` label
 
@@ -82,12 +82,12 @@ Use the delegate tool to create a small test file called e2e/test-output.md with
 
 **Prompt:**
 ```
-Use the delegate tool to review spawn.ts for issues, but with a task that says "do not modify any files, only read and report."
+Use the delegate tool to review agents.ts for issues, but with a task that says "do not modify any files, only read and report."
 ```
 
 **Expect:**
 - Delegate spawns (no readonly param exists — verify the agent doesn't hallucinate a `readonly` field)
-- Delegate reads spawn.ts and reports findings without editing
+- Delegate reads agents.ts and reports findings without editing
 
 ---
 
@@ -147,12 +147,12 @@ Use the delegate tool to spawn another delegate that says "hello". Check if nest
 
 **Prompt:**
 ```
-Use the delegate tool to review spawn.ts using the review tool. The delegate's task should be: "Use the review tool to check spawn.ts for error handling patterns and report what you find."
+Use the delegate tool to review agents.ts using the review tool. The delegate's task should be: "Use the review tool to check agents.ts for error handling patterns and report what you find."
 ```
 
 **Expect:**
 - Delegate spawns a reviewer
-- Reviewer inspects spawn.ts
+- Reviewer inspects agents.ts
 - Delegate returns the reviewer's findings
 
 ---
@@ -168,3 +168,44 @@ Use the delegate tool to explore the test directory. The delegate's task should 
 - Delegate spawns an explorer
 - Explorer lists test files
 - Delegate returns the explorer's findings
+
+---
+
+## 13. Follow-up — refine previous work
+
+**Prompt:**
+```
+Use the delegate tool to summarize the purpose of agents.ts in one sentence. Then use follow_up with the returned agent id to ask it to expand the summary to a paragraph.
+```
+
+**Expect:**
+- A `delegate` tool call whose result ends with `agent: delegate-N`
+- A `follow_up` tool call with that id
+- The follow-up response expands the original summary (context preserved)
+
+---
+
+## 14. Follow-up — unknown id fails loudly
+
+**Prompt:**
+```
+Use follow_up with agent "delegate-99" and task "continue".
+```
+
+**Expect:**
+- The tool call fails with an error stating the agent was not found
+- The error lists live agents (if any) and suggests spawning a fresh agent
+- No new agent is spawned
+
+---
+
+## 15. Interactive prompt bridging (if a subagent extension prompts)
+
+**Setup:** Requires a scenario where a subagent's tool triggers a
+`ctx.ui.confirm` (e.g. a project-trust prompt in an untrusted explore target).
+
+**Expect:**
+- The dialog appears in the parent TUI, titled with the agent id prefix
+  (e.g. `[delegate-1] ...`)
+- Answering the dialog resumes the subagent's work
+- Cancelling returns the documented default to the subagent

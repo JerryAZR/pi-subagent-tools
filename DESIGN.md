@@ -2,7 +2,7 @@
 
 ## What this is
 
-A pi extension that provides three specialized subagent tools. The
+A pi extension that provides four specialized subagent tools. The
 agent is a **project manager**, not a worker that occasionally spawns helpers.
 The agent delegates by default and dives into details only when necessary.
 
@@ -24,108 +24,200 @@ verb that matches what it's trying to do:
 - "I need this reviewed" → `review`
 - "I need to understand another project" → `explore`
 - "I need someone to do this work" → `delegate`
+- "I need to talk to that worker again" → `follow_up`
 
 **Correctness by construction.** Each tool hardcodes the invariants that matter
 for its role. You can't forget to make a reviewer read-only because `review`
 doesn't have a `readonly` parameter — it always spawns with
-`--tools read,grep,find,ls`. You can't forget to point an explorer at the right
-project because `cwd` is required on `explore`.
+`read,grep,find,ls` plus a read-only git tool. You can't escalate a reviewer
+into a worker because `follow_up` confers no capabilities — role is bound at
+spawn, never at call time. Creation parameters (`cwd`, `skills`) exist only on
+creation verbs, so "what does cwd mean on resume?" is unexpressible rather
+than validated.
 
-**Cache-conscious by default.** `delegate` spawns without `--tools` filtering
-and without `--append-system-prompt`. The child gets the identical system
-prompt and tool set as the parent. When combined with context inheritance
-(future), the provider can deliver full cache hits on system prompt +
-conversation history. Only the new task text consumes fresh tokens.
+**Delegates inherit the user's environment.** A delegate child discovers and
+loads user/project extensions exactly like a fresh `pi` in that cwd — custom
+tools work, and guard extensions (write blockers, policy checkers) guard the
+subagent just as they guard the parent. Two exclusions apply: this extension
+itself (its discovered copy would register an unguarded `delegate` —
+self-exclusion IS the recursion guard), and project-local extensions in
+untrusted projects (mirroring pi's trust model, which the raw SDK path does
+not enforce). Review/explore children deliberately get none of this: their
+minimal fixed surface is the point.
 
-**No runtime file I/O.** System prompts for `review` and `explore` are static
-`.md` files shipped with the extension, referenced by path. No temp files
-created at runtime, no cleanup needed. Tasks pass inline as CLI arguments —
-no spill-to-file machinery.
+**Subagents are sessions, not subprocesses.** Subagents run in-process via the
+pi SDK (`createAgentSession`), each an isolated `AgentSession` with its own
+context window, tools, and settings. Sessions are in-memory
+(`SessionManager.inMemory`) — no backing files, the in-process equivalent of
+`--no-session`. This buys:
+
+- **Follow-ups for free.** A live session can simply be prompted again. The
+  whole trajectory stays in context; the provider cache hits on history.
+- **Interactive prompts that actually work.** Each child session is bound to a
+  UI bridge (`session.bindExtensions({ uiContext, mode: "rpc" })`) that
+  forwards `select`/`confirm`/`input`/`editor` to the parent's TUI instead of
+  silently taking defaults. Dialog opts (`signal`, `timeout`) pass through.
+- **No process machinery.** No pi detection, no JSONL parsing, no signal
+  handling, no startup cost per subagent.
+
+The cost is process isolation: a pathological child shares the parent's event
+loop and memory. Agent loops are async I/O-bound, so this is mostly
+theoretical, but it is the deliberate tradeoff of this design.
+
+**Cache-conscious by default.** `delegate` children use the parent's current
+model and thinking level, the same default system prompt, and the same
+default tool set (no allowlist). Role prompts are appended via the resource
+loader's `appendSystemPrompt`, referencing static shipped `.md` files by path.
+
+**No runtime file I/O.** System prompts for all roles are static `.md` files
+shipped with the extension, referenced by path (the resource loader reads
+them). No temp files created at runtime, no cleanup needed.
 
 ## Tool surface
 
 ```
 Tool       Parameters               Child tools           CWD
 ─────────────────────────────────────────────────────────────────
-review     task, skills?            read,grep,find,ls     parent
-explore    task, cwd, skills?       read,grep,find,ls     required
-delegate   task, cwd?, skills?,     all (parent's tools)  optional
-           context?
+review     task, skills?            read,grep,find,ls,git parent
+explore    task, cwd, skills?       read,grep,find,ls,git required
+delegate   task, cwd?, skills?      all (defaults)        optional
+follow_up  agent, task              (agent's own tools)   (agent's own cwd)
 ```
 
 ### `review`
 
 For inspecting code, diffs, or files in the current project. Always read-only.
-Always uses the parent's CWD. System prompt loaded from shipped `prompts/review.md`.
+Always uses the parent's CWD. System prompt appended from shipped
+`prompts/review.md`.
 
 ### `explore`
 
 For mapping external codebases. `cwd` is required — the explorer runs in the
 target project's directory, picking up its `.pi/settings.json`, skills,
-AGENTS.md, etc. Always read-only. System prompt loaded from shipped
+AGENTS.md, etc. Always read-only. System prompt appended from shipped
 `prompts/explore.md`.
 
 ### `delegate`
 
-The general-purpose worker. No tool filtering, no system prompt override —
-identical spawn to the parent for optimal cache reuse. Use for implementation,
-investigation, or anything that doesn't fit `review` or `explore`.
+The general-purpose worker. No tool filtering — the child gets the default
+built-in tools (read, bash, edit, write) plus the subagent tools below.
+System prompt appended from shipped `prompts/delegate.md`.
 
-`context: "inherit"` is reserved for future session-forking support. Currently
-ignored — all subagents use fresh context (`--no-session`).
+### `follow_up`
+
+Continues an existing agent's session with a new user message. Two
+parameters only — `agent` and `task` — because everything else was fixed at
+spawn. Unknown or expired ids fail loudly with the list of live agents;
+there is no silent fresh spawn.
+
+Every spawn and follow-up result ends with an `agent: <id>` footer so the
+model can reference the agent later. Ids are `<role>-<n>`, sequential per
+owning session, monotonic — the prefix tells both the model and the user
+what kind of agent they're talking to.
+
+## Agent lifetime
+
+Agents live in a per-extension-instance registry (`AgentManager`). Cleanup is
+recency-based, not count-based:
+
+- The owning session's turn counter advances on every `turn_end`.
+- An agent records `lastActiveTurn` at spawn and when each run completes
+  (success or error — an errored agent you might follow up with is still
+  active).
+- A sweep at `turn_end` disposes agents idle for more than
+  `PROTECTION_TURNS` (10) turns. There is no cap — any number of recently
+  active agents survive.
+- Running agents (`session.isStreaming`) are never disposed. With
+  turn-scoped execution this is structural — a turn cannot end while its
+  tool calls are still running — but the guard also covers a future
+  background mode.
+- All agents are disposed on `session_shutdown`.
+
+Ownership is a tree: a delegate entry owns its child manager, and disposing
+an entry cascades `disposeAll()` to the child before disposing the session.
+No session in the tree outlives its owner.
 
 ## Recursion guard
 
-Subagent tools prevent infinite nesting via environment variable and
-conditional registration:
+Structural, not env-based. Child sessions are created with
+`noExtensions: true` — nothing is discovered from user or project config, so
+a child gets exactly the tools the extension injects:
 
 ```
-PI_SUBAGENT_TOOLS_ROLE  | review  | explore | delegate
-────────────────────────┼─────────┼─────────┼──────────
-undefined (parent)      | active  | active  | active
-"delegate"              | active  | active  | registered, rejects at runtime
-"review"                | hidden  | hidden  | hidden
-"explore"               | hidden  | hidden  | hidden
+Child of   | review  | explore | delegate                  | follow_up
+───────────┼─────────┼─────────┼───────────────────────────┼──────────
+parent     | active  | active  | active                    | active
+delegate   | active  | active  | registered, rejects       | active
+review     | (no subagent tools — leaf worker)
+explore    | (no subagent tools — leaf worker)
 ```
 
-- **Parent** has the full toolkit.
-- **delegate children** can spawn `review`/`explore` to check their own work or
-  scout dependencies. They cannot delegate further — `delegate` is registered
-  but rejects at runtime (keeps cache compatibility with the parent).
-- **review/explore children** get no subagent tools at all. They are leaf
-  workers.
+Delegate children get their own `AgentManager` (own id namespace, own turn
+tracking) via an inline extension factory, sharing the parent's
+`ModelRuntime`. UI bridges chain: a grandchild's dialog prefixes accumulate
+(`[delegate-1] [review-1] ...`), which honestly reports the call path.
+
+Delegate children also discover user/project extensions (see "Delegates
+inherit the user's environment"); review/explore children are created with
+`noExtensions: true` and get exactly the tools injected by the extension.
+
+## Roles as data
+
+Everything distinguishing delegate/review/explore children lives in one
+`ROLES` table: prompt file, tool allowlist, custom tools, and whether the
+child gets the (guarded) subagent tool surface. Session creation is a table
+lookup, not a set of per-role conditionals; adding a role means adding a row
+and a tool config. Tool registration is likewise table-driven — the three
+spawn tools share one `registerSpawnTool` factory, and the parent and child
+tool surfaces are two explicit functions (`registerAgentTools` /
+`registerChildAgentTools`) rather than a runtime flag.
 
 ## Error handling philosophy
 
-**External errors report gracefully.** Pi not found, permission denied, invalid
-CWD — these produce clear error messages returned to the parent agent. The
-spawn error handler captures the actual OS error message rather than a generic
-"failed" string.
+**Tool errors are thrown.** Pi >= 0.84 marks tool results as errors when the
+tool throws (returning `isError` in the result object is no longer
+supported). All failure paths — invalid cwd, unknown agent id, subagent
+failure, abort — throw with a descriptive message that becomes the tool
+result content.
 
-**Internal errors fail loudly.** Synchronous errors from argument construction
-propagate to pi's tool framework. CWD validation fails before spawning with a
-descriptive message.
+**Own throws never appear inside a try body.** A `fail()` thrown inside a
+try is caught by its own catch and re-wrapped into a misleading message
+(this bug shipped and was caught in review). The structural rule: try
+bodies contain only foreign calls (syscall, SDK); policy checks and our own
+throws live outside, and catch blocks only *translate* foreign errors into
+our messages.
 
-**No silent fallbacks.** There is no task spill fallback — if a task exceeds
-the OS argument length limit, it fails rather than silently writing to a file.
-There is no temp file creation at runtime — prompts are static shipped files.
-Every `if` has an `else` that either handles the error path or is intentionally
-a no-op with a comment explaining why.
+**Errors keep the agent addressable.** When a subagent run fails (assistant
+error stop, exception from `prompt()`), the agent stays registered and the
+thrown message includes the `agent: <id>` footer — `follow_up` is the
+recovery path.
+
+**No silent fallbacks.** Unknown or expired agent ids are loud errors with
+the live-agent list, never a fresh spawn. Suppressed UI methods (chrome
+hijacking: `setTitle`, `setFooter`, editor manipulation, terminal input) are
+documented no-ops, matching pi's RPC-mode degradation contract.
+
+**Read-only is enforced as policy data.** The git tool validates invocations
+against a per-subcommand policy table (forbidden flags, positional-arg
+gating), not a verb whitelist — `git branch -D`, `git branch <name>`, and
+`git diff --output=file` are all mutations that a verb-only check would
+admit. Known boundary: git aliases come from the user's own config and are
+outside the threat model (a malicious `alias.log` could expand to anything;
+git offers no generic way to disable alias expansion).
 
 ## Implementation structure
 
 ```
-index.ts       — Extension entry. Role guard, schemas, tool registration, CWD validation.
-spawn.ts       — Shared spawn core. Pi detection, arg construction, JSONL parsing,
-                 progress callbacks, result extraction. No runtime file I/O.
+index.ts       — Extension entry. Creates the AgentManager, registers tools.
+agents.ts      — AgentManager (registry, lifetime, spawn/follow-up), session
+                 creation, progress bridging, tool registration, schemas.
+ui-bridge.ts   — ExtensionUIContext forwarding child prompts to the parent
+                 TUI. Process-wide dialog serialization queue.
+render.ts      — Tool call/result rendering (CompactPreview, usage footer).
+git-tool.ts    — Read-only git customTool for review/explore children.
 tui.ts         — Formatting helpers (shortenPath, formatDuration, formatTokens).
 prompts/       — Static system prompt files shipped with the extension.
-  review.md    — System prompt for review subagents.
-  explore.md   — System prompt for explore subagents.
 ```
-
-Each tool is ~30 lines in `index.ts`. The shared core in `spawn.ts` is ~300
-lines. The TUI helpers in `tui.ts` are ~30 lines.
 
 ## What we reused from pi-subagents
 
@@ -133,8 +225,6 @@ lines. The TUI helpers in `tui.ts` are ~30 lines.
 |--------|------|-----|
 | `formatters.ts` | `shortenPath`, `formatDuration`, `formatTokens` | Battle-tested display helpers. No dependencies, handle edge cases. |
 | `utils.ts` | `getFinalOutput` pattern | Iterates messages backwards, skips error stops. Subtle bugs to avoid. |
-| `pi-spawn.ts` | `getPiSpawnCommand` pattern | Robust pi detection with npm-global fallback on Windows. |
-| Extension `index.ts` | `renderCall` / `renderResult` conventions | `theme.fg("toolTitle", theme.bold(...))` styling consistency. |
 
 ## What we deliberately did not reuse
 
@@ -142,3 +232,13 @@ Everything else in pi-subagents is orchestration overhead for our purposes:
 agents subsystem, chains, parallel execution, async tracking, intercom,
 acceptance gates, control system, worktree isolation, slash commands, dynamic
 fanout, temp file spill logic. That's ~90% of the codebase.
+
+## Historical note: the subprocess design (0.1.x)
+
+Versions 0.1.x spawned each subagent as a fresh `pi --mode json -p
+--no-session` subprocess. That design gave process isolation but made two
+things unfixable: interactive prompts in children silently fell back to
+defaults (json/print mode binds a no-op UI context), and without a backing
+session there was no way to ask follow-up questions. The in-process SDK
+design (0.2.0) solves both. The subprocess implementation is preserved in
+git history.
