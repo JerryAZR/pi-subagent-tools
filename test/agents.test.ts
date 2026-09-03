@@ -93,7 +93,7 @@ const fakeCtx: any = {
 function createManager(sessions: any[] = []) {
   const created: any[] = sessions;
   const manager = new AgentManager({
-    spawnSession: async (opts: any, id: string) => {
+    spawnSession: async ({ id }: any) => {
       const session = created.length > 0 ? created.shift() : fakeSession();
       session._id = id;
       return session;

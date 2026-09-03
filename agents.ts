@@ -198,6 +198,19 @@ export interface SpawnAgentOptions {
   onUpdate?: (result: AgentToolResult<any>) => void;
 }
 
+/**
+ * Everything needed to create a child session. One named type shared by the
+ * production default and the test seam — with two separate signatures the
+ * two sides could drift apart; with one params type, drift is a compile
+ * error.
+ */
+export interface SpawnSessionParams {
+  opts: SpawnAgentOptions;
+  id: string;
+  runtime: () => Promise<ModelRuntime>;
+  childManager: AgentManager | undefined;
+}
+
 export interface FollowUpOptions {
   agent: string;
   task: string;
@@ -209,7 +222,7 @@ export interface AgentManagerDeps {
   /** Shared model runtime. Defaults to a process-wide lazy singleton. */
   runtime?: () => Promise<ModelRuntime>;
   /** Test seam: override session creation. */
-  spawnSession?: (opts: SpawnAgentOptions, id: string) => Promise<AgentSession>;
+  spawnSession?: (params: SpawnSessionParams) => Promise<AgentSession>;
 }
 
 let sharedRuntime: Promise<ModelRuntime> | undefined;
@@ -478,9 +491,12 @@ export class AgentManager {
 
     let session: AgentSession;
     try {
-      session = this.spawnSession
-        ? await this.spawnSession(opts, id)
-        : await defaultSpawnSession(opts, id, this.runtime, childManager);
+      session = await (this.spawnSession ?? defaultSpawnSession)({
+        opts,
+        id,
+        runtime: this.runtime,
+        childManager,
+      });
     } catch (err: any) {
       fail(`Failed to start subagent: ${err.message || String(err)}`);
     }
@@ -609,11 +625,9 @@ export function filterChildExtensions<T extends { path: string; resolvedPath?: s
 // ---------------------------------------------------------------------------
 
 async function defaultSpawnSession(
-  opts: SpawnAgentOptions,
-  id: string,
-  runtime: () => Promise<ModelRuntime>,
-  childManager: AgentManager | undefined,
+  params: SpawnSessionParams,
 ): Promise<AgentSession> {
+  const { opts, id, runtime, childManager } = params;
   const modelRuntime = await runtime();
   const role = ROLES[opts.role];
   const agentDir = getAgentDir();
