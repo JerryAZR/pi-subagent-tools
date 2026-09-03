@@ -18,9 +18,10 @@
   bash reaches a read-only child.
 - The dedicated `git` tool is removed; git inspection (log, diff, show,
   blame, grep, ls-files) goes through the sandbox.
-  Known limitation: `git status` is slow in large repositories (upstream
-  just-git walks the full worktree without ignore-pruning); the tool
-  description steers agents to targeted commands.
+  Known limitation: just-git's `.gitignore` parser does not strip carriage
+  returns — on Windows (CRLF `.gitignore`) ignore rules silently no-op, so
+  `git status` walks the unpruned worktree (slow) and reports ignored paths
+  as untracked; the tool description steers agents to targeted commands.
 
 ### Added
 

@@ -203,17 +203,25 @@ documented no-ops, matching pi's RPC-mode degradation contract.
 
 **Read-only is enforced at the capability layer, not by inspecting commands.**
 Review/explore children get `read` plus a `bash` that is actually a just-bash
-interpreter over a read-only OverlayFs mount of the project root (custom
-tools shadow builtins of the same name — fail-closed). Every write fails
-with EROFS at the filesystem itself: shell redirects, `rm`, `sed -i`, git
-index updates, tools we never thought of. just-git provides git inside the
-sandbox with `network: false`; a `disabled` list of pure-mutator verbs
-exists only for clean UX errors — enforcement never depends on it. This
-replaced an earlier per-subcommand policy table, which could only ever
-cover the commands someone remembered to enumerate. Known approximation:
-the interpreter is a bash reimplementation, so exotic syntax a real bash
-would run may parse differently — the failure direction is safe (the
-command errors, nothing executes).
+interpreter over a composed filesystem (custom tools shadow builtins of the
+same name — fail-closed): the project root mounted read-only at `/repo`
+(OverlayFs), over a writable in-memory base (MountableFs) that provides a
+working `/dev/null` and per-call scratch like `/tmp`. Every write to the
+project fails with EROFS at the filesystem itself: shell redirects, `rm`,
+`sed -i`, git object/ref updates, tools we never thought of. just-git
+provides git inside the sandbox with `network: false`; a `disabled` list of
+pure-mutator verbs exists only for clean UX errors — enforcement never
+depends on it. This replaced an earlier per-subcommand policy table, which
+could only ever cover the commands someone remembered to enumerate. Known
+approximations: the interpreter is a bash reimplementation, so exotic syntax
+may parse differently (failure direction is safe — the command errors,
+nothing executes); create-then-rename tools (`sed -i`, `tee`) report the
+EROFS refusal as a misleading "No such file or directory"; and just-git's
+`.gitignore` parser does not strip carriage returns, so on Windows (CRLF
+`.gitignore`, the default with `core.autocrlf=true`) ignore rules silently
+no-op — `git status` walks the unpruned worktree (~15s here) and reports
+ignored paths as untracked. The tool description steers agents to targeted
+git commands until that is fixed upstream.
 
 ## Implementation structure
 
