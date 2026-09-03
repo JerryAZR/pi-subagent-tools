@@ -121,6 +121,7 @@ describe("System prompts", () => {
     assert.ok(
       reviewPrompt.includes("Do not modify") ||
         reviewPrompt.includes("cannot modify") ||
+        reviewPrompt.includes("cannot be modified") ||
         reviewPrompt.includes("cannot write"),
     );
   });
@@ -130,6 +131,7 @@ describe("System prompts", () => {
     assert.ok(
       explorePrompt.includes("Do not modify") ||
         explorePrompt.includes("cannot modify") ||
+        explorePrompt.includes("cannot be modified") ||
         explorePrompt.includes("cannot write"),
     );
   });

@@ -29,7 +29,7 @@ verb that matches what it's trying to do:
 **Correctness by construction.** Each tool hardcodes the invariants that matter
 for its role. You can't forget to make a reviewer read-only because `review`
 doesn't have a `readonly` parameter — it always spawns with
-`read,grep,find,ls` plus a read-only git tool. You can't escalate a reviewer
+`read` plus a sandboxed read-only bash. You can't escalate a reviewer
 into a worker because `follow_up` confers no capabilities — role is bound at
 spawn, never at call time. Creation parameters (`cwd`, `skills`) exist only on
 creation verbs, so "what does cwd mean on resume?" is unexpressible rather
@@ -78,11 +78,15 @@ them). No temp files created at runtime, no cleanup needed.
 ```
 Tool       Parameters               Child tools           CWD
 ─────────────────────────────────────────────────────────────────
-review     task, skills?            read,grep,find,ls,git parent
-explore    task, cwd, skills?       read,grep,find,ls,git required
+review     task, skills?            read, bash (sandbox)  parent
+explore    task, cwd, skills?       read, bash (sandbox)  required
 delegate   task, cwd?, skills?      all (defaults)        optional
 follow_up  agent, task              (agent's own tools)   (agent's own cwd)
 ```
+
+The sandboxed `bash` is a read-only just-bash environment (project root
+mounted at `/repo`, ~80 utilities, git with no network, stateless per call).
+See "read-only is enforced at the capability layer" in DESIGN.md.
 
 ### `review`
 
@@ -197,13 +201,19 @@ the live-agent list, never a fresh spawn. Suppressed UI methods (chrome
 hijacking: `setTitle`, `setFooter`, editor manipulation, terminal input) are
 documented no-ops, matching pi's RPC-mode degradation contract.
 
-**Read-only is enforced as policy data.** The git tool validates invocations
-against a per-subcommand policy table (forbidden flags, positional-arg
-gating), not a verb whitelist — `git branch -D`, `git branch <name>`, and
-`git diff --output=file` are all mutations that a verb-only check would
-admit. Known boundary: git aliases come from the user's own config and are
-outside the threat model (a malicious `alias.log` could expand to anything;
-git offers no generic way to disable alias expansion).
+**Read-only is enforced at the capability layer, not by inspecting commands.**
+Review/explore children get `read` plus a `bash` that is actually a just-bash
+interpreter over a read-only OverlayFs mount of the project root (custom
+tools shadow builtins of the same name — fail-closed). Every write fails
+with EROFS at the filesystem itself: shell redirects, `rm`, `sed -i`, git
+index updates, tools we never thought of. just-git provides git inside the
+sandbox with `network: false`; a `disabled` list of pure-mutator verbs
+exists only for clean UX errors — enforcement never depends on it. This
+replaced an earlier per-subcommand policy table, which could only ever
+cover the commands someone remembered to enumerate. Known approximation:
+the interpreter is a bash reimplementation, so exotic syntax a real bash
+would run may parse differently — the failure direction is safe (the
+command errors, nothing executes).
 
 ## Implementation structure
 
@@ -211,6 +221,8 @@ git offers no generic way to disable alias expansion).
 index.ts       — Extension entry. Creates the AgentManager, registers tools.
 agents.ts      — AgentManager (registry, lifetime, spawn/follow-up), session
                  creation, progress bridging, tool registration, schemas.
+sandbox-bash.ts — The read-only bash tool for review/explore children
+                 (just-bash + just-git over a read-only OverlayFs).
 ui-bridge.ts   — ExtensionUIContext forwarding child prompts to the parent
                  TUI. Process-wide dialog serialization queue.
 render.ts      — Tool call/result rendering (CompactPreview, usage footer).

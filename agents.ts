@@ -56,7 +56,7 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { createUIBridge } from "./ui-bridge.ts";
-import { gitTool } from "./git-tool.ts";
+import { sandboxBashTool } from "./sandbox-bash.ts";
 import { renderSubagentCall, renderSubagentResult } from "./render.ts";
 import { shortenPath, truncate, TOOL_LINE_PREFIX, type UsageStats } from "./tui.ts";
 
@@ -69,7 +69,12 @@ const PROMPTS_DIR = path.resolve(EXTENSION_DIR, "prompts");
 
 export type AgentRole = "delegate" | "review" | "explore";
 
-export const READONLY_TOOLS = ["read", "grep", "find", "ls", "git"];
+/**
+ * Tool allowlist for read-only child roles. "bash" here denotes the
+ * sandboxed read-only shell injected via customTools (custom tools shadow
+ * builtins of the same name — fail-closed).
+ */
+export const READONLY_TOOLS = ["read", "bash"];
 
 interface RoleConfig {
   promptFile: string;
@@ -96,14 +101,14 @@ const ROLES: Record<AgentRole, RoleConfig> = {
   review: {
     promptFile: path.join(PROMPTS_DIR, "review.md"),
     tools: READONLY_TOOLS,
-    customTools: [gitTool],
+    customTools: [sandboxBashTool],
     childExtension: false,
     discoverExtensions: false,
   },
   explore: {
     promptFile: path.join(PROMPTS_DIR, "explore.md"),
     tools: READONLY_TOOLS,
-    customTools: [gitTool],
+    customTools: [sandboxBashTool],
     childExtension: false,
     discoverExtensions: false,
   },

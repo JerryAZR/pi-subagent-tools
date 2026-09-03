@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased (0.3.0)
+
+### Changed
+
+- **Review/explore children now get a sandboxed read-only `bash`** instead of
+  the `grep`/`find`/`ls` builtins plus the dedicated `git` tool. The sandbox
+  is a just-bash interpreter over a composed filesystem: the project root
+  mounted read-only at `/repo` (OverlayFs) over a writable in-memory base
+  (MountableFs) providing `/dev/null` and per-call scratch (`/tmp`). Git is
+  provided by just-git inside the sandbox (network disabled). Read-only is
+  now enforced at the capability layer — the filesystem rejects every write
+  to the project (redirects, `rm`, `sed -i`, git object/ref updates) —
+  replacing the per-subcommand git policy table. The tool surface shrinks to
+  `read` + `bash`; the sandboxed `bash` shadows the builtin (custom tools
+  win over builtins), so there is no configuration in which a raw builtin
+  bash reaches a read-only child.
+- The dedicated `git` tool and its policy table are removed; git inspection
+  (log, diff, show, blame, grep, ls-files) goes through the sandbox.
+  Known limitation: `git status` is slow in large repositories (upstream
+  just-git walks the full worktree without ignore-pruning); the tool
+  description steers agents to targeted commands.
+
+### Added
+
+- New runtime dependencies: `just-bash`, `just-git`.
+
 ## 0.2.0
 
 **Subagents now run in-process** via the pi SDK (`createAgentSession`) instead

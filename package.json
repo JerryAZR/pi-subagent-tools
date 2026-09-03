@@ -53,8 +53,10 @@
     "@earendil-works/pi-tui": "^0.84.4",
     "@sinclair/typebox": "^0.34.0",
     "@types/node": "^20.0.0",
-    "just-bash": "^3.4.2",
-    "just-git": "^1.8.0",
     "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "just-bash": "^3.4.2",
+    "just-git": "^1.8.0"
   }
 }

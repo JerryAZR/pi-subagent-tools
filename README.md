@@ -25,7 +25,7 @@ The extension is available the next time you start a pi session. Requires pi >= 
 
 ### `review`
 
-Review code, diffs, or files in the current project. The reviewer is always read-only — it cannot modify files or execute commands.
+Review code, diffs, or files in the current project. The reviewer is always read-only: it gets `read` plus a sandboxed bash (just-bash over a read-only mount of your project — grep, find, sed, git log/diff/blame all work; every write fails at the filesystem).
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -34,7 +34,7 @@ Review code, diffs, or files in the current project. The reviewer is always read
 
 ### `explore`
 
-Map a project directory. The explorer runs in the target directory, picking up its `.pi/settings.json`, skills, AGENTS.md, and other context files. Always read-only.
+Map a project directory. The explorer runs in the target directory, picking up its `.pi/settings.json`, skills, AGENTS.md, and other context files. Always read-only, with the same sandboxed bash as the reviewer.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|

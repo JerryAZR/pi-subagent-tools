@@ -112,7 +112,7 @@ Use the review tool to show the git log of the last commit.
 ```
 
 **Expect:**
-- Reviewer uses the git tool
+- Reviewer uses the sandboxed bash (git through just-git)
 - Output shows the commit history
 
 ---
@@ -125,7 +125,7 @@ Use the explore tool with cwd "." to show the git diff of the most recent commit
 ```
 
 **Expect:**
-- Explorer uses the git tool
+- Explorer uses the sandboxed bash (git through just-git)
 - Output shows the diff
 
 ---
