@@ -83,7 +83,7 @@ function canonicalize(p: string): string {
  * One path form is therefore understood by both the sandbox and pi's
  * native tools (pi's native shell on Windows is an MSYS-family bash).
  */
-function virtualMountPointFor(hostRoot: string, platform: Platform): string {
+export function virtualMountPointFor(hostRoot: string, platform: Platform): string {
   const normalized = toSlashes(hostRoot);
   if (platform !== "win32") return normalized;
   const drive = /^([A-Za-z]):\/(.*)$/.exec(normalized);
@@ -156,22 +156,28 @@ export interface SandboxTopology {
 export function computeTopology(
   cwdInput: string,
   homeInput: string,
-  options?: { platform?: Platform; drives?: string[] },
+  options?: { platform?: Platform; drives?: string[]; canonicalize?: (p: string) => string },
 ): SandboxTopology {
   const platform = options?.platform ?? PLATFORM;
-  const cwd = canonicalize(cwdInput);
-  const home = canonicalize(homeInput);
+  const canon = options?.canonicalize ?? canonicalize;
+  const cwd = canon(cwdInput);
+  const home = canon(homeInput);
   // win32: home is of course on one of the drives, so only cwd is worth
   // adding — and only matters for a UNC working directory, which no drive
   // letter covers.
-  const candidates =
-    platform === "win32" ? [...(options?.drives ?? windowsDrives()), cwd] : [home, cwd];
+  const spelled =
+    platform === "win32" ? [...(options?.drives ?? windowsDrives()), cwdInput] : [homeInput, cwdInput];
+  // Mounts are string-matched, so a symlinked path must be mounted under
+  // BOTH its spelled and canonical forms (macOS /var -> /private/var
+  // firmlinks) — otherwise a path typed in the spelled form misses the
+  // mount while pi's read tool (host-resolved) sees the file fine.
+  const candidates = [...spelled, ...spelled.map(canon)];
   const mounts = resolveMountRoots(candidates, platform).map((root) => ({
     at: virtualMountPointFor(root, platform),
     root,
   }));
   const hostToVirtual = (hostPath: string): string | null => {
-    const canonical = canonicalize(hostPath);
+    const canonical = canon(hostPath);
     let best: { at: string; root: string } | null = null;
     for (const mount of mounts) {
       if (isWithin(mount.root, canonical, platform) && (!best || mount.root.length > best.root.length)) {

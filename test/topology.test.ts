@@ -15,6 +15,10 @@ import * as path from "node:path";
 
 import { computeTopology, resolveMountRoots } from "../sandbox-bash.ts";
 
+// Fake test paths must NOT be canonicalized (macOS firmlinks resolve /home
+// and /var; Windows realpath mangles drive forms) — inject identity.
+const identity = (p: string) => p;
+
 describe("resolveMountRoots", () => {
   it("drops \"/\" (cannot mount the fs root)", () => {
     assert.deepEqual(resolveMountRoots(["/", "/home/jerry"], "posix"), ["/home/jerry"]);
@@ -57,7 +61,7 @@ describe("resolveMountRoots", () => {
 
 describe("computeTopology (posix)", () => {
   it("cwd inside home: single home mount, cwd maps under it", () => {
-    const topo = computeTopology("/home/jerry/proj", "/home/jerry", { platform: "posix" });
+    const topo = computeTopology("/home/jerry/proj", "/home/jerry", { platform: "posix", canonicalize: identity });
     assert.deepEqual(
       topo.mounts.map((m) => m.root),
       ["/home/jerry"],
@@ -67,7 +71,7 @@ describe("computeTopology (posix)", () => {
   });
 
   it("cwd outside home: home and project mounts", () => {
-    const topo = computeTopology("/opt/proj", "/home/jerry", { platform: "posix" });
+    const topo = computeTopology("/opt/proj", "/home/jerry", { platform: "posix", canonicalize: identity });
     assert.deepEqual(
       topo.mounts.map((m) => m.root),
       ["/home/jerry", "/opt/proj"],
@@ -76,7 +80,7 @@ describe("computeTopology (posix)", () => {
   });
 
   it("cwd as ancestor of home: single covering mount, home still reachable", () => {
-    const topo = computeTopology("/home", "/home/jerry", { platform: "posix" });
+    const topo = computeTopology("/home", "/home/jerry", { platform: "posix", canonicalize: identity });
     assert.deepEqual(
       topo.mounts.map((m) => m.root),
       ["/home"],
@@ -87,13 +91,13 @@ describe("computeTopology (posix)", () => {
   });
 
   it("cwd == home: one mount", () => {
-    const topo = computeTopology("/home/jerry", "/home/jerry", { platform: "posix" });
+    const topo = computeTopology("/home/jerry", "/home/jerry", { platform: "posix", canonicalize: identity });
     assert.equal(topo.mounts.length, 1);
     assert.equal(topo.virtualCwd, "/home/jerry");
   });
 
   it("home == \"/\": root dropped, project mount only, virtualHome falls back to \"/\"", () => {
-    const topo = computeTopology("/home/jerry/proj", "/", { platform: "posix" });
+    const topo = computeTopology("/home/jerry/proj", "/", { platform: "posix", canonicalize: identity });
     assert.deepEqual(
       topo.mounts.map((m) => m.root),
       ["/home/jerry/proj"],
@@ -102,21 +106,26 @@ describe("computeTopology (posix)", () => {
   });
 
   it("hostToVirtual returns null under no mount", () => {
-    const topo = computeTopology("/opt/proj", "/home/jerry", { platform: "posix" });
+    const topo = computeTopology("/opt/proj", "/home/jerry", { platform: "posix", canonicalize: identity });
     assert.equal(topo.hostToVirtual("/etc/passwd"), null);
   });
 
-  it("symlinked cwd canonicalizes onto the same mount as its realpath", () => {
+  it("symlinked cwd maps onto the same virtual path as its realpath", () => {
     const real = fs.mkdtempSync(path.join(os.tmpdir(), "pi-topo-real-"));
     const link = path.join(os.tmpdir(), `pi-topo-link-${process.pid}`);
-    fs.symlinkSync(real, link);
     try {
-      const topo = computeTopology(link, "/nonexistent-home-xyz", { platform: "posix" });
-      const roots = topo.mounts.map((m) => m.root);
-      // The mount root is the canonical realpath, not the symlinked spelling.
-      assert.ok(roots.includes(fs.realpathSync.native(real)));
-      assert.ok(!roots.includes(link));
-      assert.equal(topo.virtualCwd, fs.realpathSync.native(real));
+      fs.symlinkSync(real, link);
+    } catch {
+      fs.rmSync(real, { recursive: true, force: true });
+      return; // symlink creation needs privileges on some Windows setups
+    }
+    try {
+      // Real canonicalizer (the thing under test), real host platform.
+      const topo = computeTopology(link, path.join(os.tmpdir(), "pi-topo-nohome-" + process.pid));
+      const expected = topo.hostToVirtual(fs.realpathSync.native(real));
+      assert.ok(expected !== null, "realpath should be under a mount");
+      assert.equal(topo.hostToVirtual(link), expected);
+      assert.equal(topo.virtualCwd, expected);
     } finally {
       fs.rmSync(link, { force: true });
       fs.rmSync(real, { recursive: true, force: true });
@@ -131,6 +140,7 @@ describe("computeTopology (win32)", () => {
     const topo = computeTopology("C:\\Users\\jerry\\proj", "C:\\Users\\jerry", {
       platform: "win32",
       drives,
+      canonicalize: identity,
     });
     assert.deepEqual(
       topo.mounts.map((m) => m.at),
@@ -144,6 +154,7 @@ describe("computeTopology (win32)", () => {
     const topo = computeTopology("D:\\work\\proj", "C:\\Users\\jerry", {
       platform: "win32",
       drives,
+      canonicalize: identity,
     });
     assert.equal(topo.virtualCwd, "/d/work/proj");
   });
@@ -152,6 +163,7 @@ describe("computeTopology (win32)", () => {
     const topo = computeTopology("c:\\users\\JERRY\\proj", "C:\\Users\\jerry", {
       platform: "win32",
       drives,
+      canonicalize: identity,
     });
     assert.equal(topo.virtualCwd, "/c/users/JERRY/proj");
   });
@@ -160,6 +172,7 @@ describe("computeTopology (win32)", () => {
     const topo = computeTopology("\\\\server\\share\\proj", "C:\\Users\\jerry", {
       platform: "win32",
       drives,
+      canonicalize: identity,
     });
     assert.deepEqual(
       topo.mounts.map((m) => m.root),

@@ -14,7 +14,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { sandboxBashTool } from "../sandbox-bash.ts";
+import { sandboxBashTool, virtualMountPointFor } from "../sandbox-bash.ts";
 
 let repoDir: string;
 
@@ -110,7 +110,10 @@ describe("sandboxed bash: read-only enforcement", () => {
 describe("sandboxed bash: sandbox layout", () => {
   it("cwd is the project root at its real host path", async () => {
     const out = await textOf("pwd");
-    assert.match(out, new RegExp(escapeRegExp(fs.realpathSync.native(repoDir))));
+    // Virtual form of the canonical cwd: identity on posix, MSYS on win32.
+    const platform = process.platform === "win32" ? "win32" : "posix";
+    const expected = virtualMountPointFor(fs.realpathSync.native(repoDir), platform);
+    assert.match(out, new RegExp(escapeRegExp(expected)));
   });
 
   it("host-absolute paths work verbatim inside the sandbox", async () => {
