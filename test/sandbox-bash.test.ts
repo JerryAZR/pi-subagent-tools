@@ -18,6 +18,10 @@ import { sandboxBashTool } from "../sandbox-bash.ts";
 
 let repoDir: string;
 
+function escapeRegExp(s: string) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function run(command: string) {
   return sandboxBashTool.execute("test", { command }, undefined, undefined, {
     cwd: repoDir,
@@ -104,17 +108,32 @@ describe("sandboxed bash: read-only enforcement", () => {
 });
 
 describe("sandboxed bash: sandbox layout", () => {
+  it("cwd is the project root at its real host path", async () => {
+    const out = await textOf("pwd");
+    assert.match(out, new RegExp(escapeRegExp(fs.realpathSync.native(repoDir))));
+  });
+
+  it("host-absolute paths work verbatim inside the sandbox", async () => {
+    const out = await textOf(`cat "${repoDir}/hello.txt"`);
+    assert.match(out, /hello world/);
+  });
+
+  it("$HOME is mounted and readable", async () => {
+    const out = await textOf('test -d "$HOME" && ls "$HOME" >/dev/null; echo ok=$?');
+    assert.match(out, /ok=0/);
+  });
+
   it("/dev/null accepts writes (stderr silencing works)", async () => {
     const out = await textOf("echo hi > /dev/null; grep -q world hello.txt 2>/dev/null; echo ok=$?");
     assert.match(out, /ok=0/);
   });
 
-  it("paths outside /repo are in-memory scratch; /repo stays read-only", async () => {
+  it("paths outside the mounts are in-memory scratch; real paths stay read-only", async () => {
     const out = await textOf("echo scratch > /tmp/x.txt && mkdir -p /work && echo data > /work/f.txt && cat /tmp/x.txt /work/f.txt");
     assert.match(out, /scratch/);
     assert.match(out, /data/);
     assert.ok(!fs.existsSync(path.join(repoDir, "tmp")));
-    const denied = await textOf("echo data > /repo/injected2.txt");
+    const denied = await textOf(`echo data > "${repoDir}/injected2.txt"`);
     assert.match(denied, /Exit code [1-9]/);
     assert.ok(!fs.existsSync(path.join(repoDir, "injected2.txt")));
   });

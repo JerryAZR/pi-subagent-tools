@@ -29,7 +29,7 @@ verb that matches what it's trying to do:
 **Correctness by construction.** Each tool hardcodes the invariants that matter
 for its role. You can't forget to make a reviewer read-only because `review`
 doesn't have a `readonly` parameter — it always spawns with
-`read` plus a sandboxed read-only bash. You can't escalate a reviewer
+`read` plus sandboxed read-only bash and python. You can't escalate a reviewer
 into a worker because `follow_up` confers no capabilities — role is bound at
 spawn, never at call time. Creation parameters (`cwd`, `skills`) exist only on
 creation verbs, so "what does cwd mean on resume?" is unexpressible rather
@@ -78,15 +78,19 @@ them). No temp files created at runtime, no cleanup needed.
 ```
 Tool       Parameters               Child tools           CWD
 ─────────────────────────────────────────────────────────────────
-review     task, skills?            read, bash (sandbox)  parent
-explore    task, cwd, skills?       read, bash (sandbox)  required
+review     task, skills?            read, bash+python     parent
+explore    task, cwd, skills?       read, bash+python     required
+                                  (both sandboxed)
 delegate   task, cwd?, skills?      all (defaults)        optional
 follow_up  agent, task              (agent's own tools)   (agent's own cwd)
 ```
 
-The sandboxed `bash` is a read-only just-bash environment (project root
-mounted at `/repo`, ~80 utilities, git with no network, stateless per call).
-See "read-only is enforced at the capability layer" below.
+The sandboxed `bash` is a read-only just-bash environment (real-layout
+mounts: `$HOME` on posix, every drive at MSYS form on Windows, so sandbox
+paths match host paths one-to-one; ~80 utilities, git with no network,
+stateless per call). The sandboxed `python` tool runs stdlib-only WASM
+CPython over the same filesystem. See "read-only is enforced at the
+capability layer" below.
 
 ### `review`
 
@@ -203,12 +207,26 @@ documented no-ops, matching pi's RPC-mode degradation contract.
 
 **Read-only is enforced at the capability layer, not by inspecting commands.**
 Review/explore children get `read` plus a `bash` that is actually a just-bash
-interpreter over a composed filesystem (custom tools shadow builtins of the
-same name — fail-closed): the project root mounted read-only at `/repo`
-(OverlayFs), over a writable in-memory base (MountableFs) that provides a
-working `/dev/null` and per-call scratch like `/tmp`. Every write to the
-project fails with EROFS at the filesystem itself: shell redirects, `rm`,
-`sed -i`, git object/ref updates, tools we never thought of. just-git
+interpreter over a composed filesystem (the role allowlist must name every
+custom tool — pi filters customTools through it; custom tools shadow
+builtins of the same name — fail-closed): real-layout read-only overlays (OverlayFs) —
+`$HOME` at its own path on posix (plus the project root when it sits
+outside home, since read-only agents may read other projects), every
+existing drive at MSYS form (`C:\` = `/c`) on Windows — over a writable
+in-memory base (MountableFs) that provides a working `/dev/null` and
+per-call scratch like `/tmp`. Sandbox paths match host paths one-to-one, so
+a path printed by bash works verbatim with the `read` tool and vice versa.
+Every write to a mounted path fails with EROFS at the filesystem itself:
+shell redirects, `rm`, `sed -i`, git object/ref updates, tools we never
+thought of. A separate sandboxed `python` tool runs dependency-free
+scripts under WASM CPython over the same filesystem. It is deliberately
+NOT a `python3` command inside the bash sandbox: a bare `python3` on PATH
+implies the native interpreter (project environment, pip, third-party
+packages), and the WASM build is none of that — the dedicated tool makes
+the stdlib-only contract explicit instead of selling a capability that
+isn't there (same reasoning as pi-overlayfs, where the bash slot stays
+free so `python3` can fall through to the real native interpreter).
+just-git
 provides git inside the sandbox with `network: false`; a `disabled` list of
 pure-mutator verbs exists only for clean UX errors — enforcement never
 depends on it. This replaced an earlier per-subcommand policy table, which
@@ -216,12 +234,16 @@ could only ever cover the commands someone remembered to enumerate. Known
 approximations: the interpreter is a bash reimplementation, so exotic syntax
 may parse differently (failure direction is safe — the command errors,
 nothing executes); create-then-rename tools (`sed -i`, `tee`) report the
-EROFS refusal as a misleading "No such file or directory"; and just-git's
-`.gitignore` parser does not strip carriage returns, so on Windows (CRLF
-`.gitignore`, the default with `core.autocrlf=true`) ignore rules silently
-no-op — `git status` walks the unpruned worktree (~15s here) and reports
-ignored paths as untracked. The tool description steers agents to targeted
-git commands until that is fixed upstream.
+EROFS refusal as a misleading "No such file or directory".
+
+Symlink policy: the overlays allow symlinks (`allowSymlinks`), so reads can
+follow a symlink out of a mounted tree. That is accepted by design: the
+sandbox is read-only (writes hit EROFS before any real-FS resolution,
+symlink or not), and there is no confidentiality boundary to protect — the
+`read` tool these children also get is unrestricted. Without it, common
+layouts (stow/chezmoi dotfiles, symlinked `~/.config`, pnpm `node_modules`)
+would be unreadable in bash/python while `read` handles them fine — an
+arbitrary-feeling inconsistency.
 
 ## Implementation structure
 
@@ -230,7 +252,10 @@ index.ts       — Extension entry. Creates the AgentManager, registers tools.
 agents.ts      — AgentManager (registry, lifetime, spawn/follow-up), session
                  creation, progress bridging, tool registration, schemas.
 sandbox-bash.ts — The read-only bash tool for review/explore children
-                 (just-bash + just-git over a composed read-only FS).
+                 (just-bash + just-git over real-layout read-only mounts),
+                 plus the shared mount-topology resolution.
+sandbox-python.ts — The read-only python tool (stdlib-only WASM CPython)
+                 over the same sandbox filesystem.
 ui-bridge.ts   — ExtensionUIContext forwarding child prompts to the parent
                  TUI. Process-wide dialog serialization queue.
 render.ts      — Tool call/result rendering (CompactPreview, usage footer).

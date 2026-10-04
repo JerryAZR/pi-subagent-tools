@@ -31,7 +31,7 @@
  * ─────────
  * Structural, not env-based. Review/explore children are created with
  * noExtensions: true — they get exactly the tools injected here (read +
- * sandboxed bash) and are leaves. Delegate children discover user/project
+ * sandboxed bash + sandboxed python) and are leaves. Delegate children discover user/project
  * extensions like a fresh pi (guard extensions included), minus this
  * extension itself — self-exclusion is the recursion guard — and get
  * review/explore/follow_up via an inline extension factory; their
@@ -58,6 +58,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { createUIBridge } from "./ui-bridge.ts";
 import { sandboxBashTool } from "./sandbox-bash.ts";
+import { sandboxPythonTool } from "./sandbox-python.ts";
 import { renderSubagentCall, renderSubagentResult } from "./render.ts";
 import { shortenPath, truncate, TOOL_LINE_PREFIX, type UsageStats } from "./tui.ts";
 
@@ -71,15 +72,17 @@ const PROMPTS_DIR = path.resolve(EXTENSION_DIR, "prompts");
 export type AgentRole = "delegate" | "review" | "explore";
 
 /**
- * Tool allowlist for read-only child roles. "bash" here denotes the
- * sandboxed read-only shell injected via customTools (custom tools shadow
- * builtins of the same name — fail-closed).
+ * Tool allowlist for read-only child roles. pi applies this filter to ALL
+ * tools — builtins, extension tools, and customTools alike (custom tools
+ * shadow builtins of the same name — fail-closed). "bash" and "python"
+ * here denote the sandboxed read-only tools injected via customTools;
+ * there is no builtin python, so the name only admits the custom one.
  */
-export const READONLY_TOOLS = ["read", "bash"];
+export const READONLY_TOOLS = ["read", "bash", "python"];
 
 interface RoleConfig {
   promptFile: string;
-  /** Built-in tool allowlist. Undefined = pi defaults (full access). */
+  /** Tool-name allowlist (gates builtins AND customTools — pi filters both). Undefined = pi defaults (full access). */
   tools?: string[];
   customTools?: ToolDefinition<any>[];
   /** Whether children of this role get the (guarded) subagent tool surface. */
@@ -93,7 +96,7 @@ interface RoleConfig {
   discoverExtensions: boolean;
 }
 
-const ROLES: Record<AgentRole, RoleConfig> = {
+export const ROLES: Record<AgentRole, RoleConfig> = {
   delegate: {
     promptFile: path.join(PROMPTS_DIR, "delegate.md"),
     childExtension: true,
@@ -102,14 +105,14 @@ const ROLES: Record<AgentRole, RoleConfig> = {
   review: {
     promptFile: path.join(PROMPTS_DIR, "review.md"),
     tools: READONLY_TOOLS,
-    customTools: [sandboxBashTool],
+    customTools: [sandboxBashTool, sandboxPythonTool],
     childExtension: false,
     discoverExtensions: false,
   },
   explore: {
     promptFile: path.join(PROMPTS_DIR, "explore.md"),
     tools: READONLY_TOOLS,
-    customTools: [sandboxBashTool],
+    customTools: [sandboxBashTool, sandboxPythonTool],
     childExtension: false,
     discoverExtensions: false,
   },

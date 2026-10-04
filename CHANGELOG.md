@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.4.0
+
+### Changed
+
+- **Sandbox bash now uses real-layout mounts instead of a fixed `/repo`.**
+  On posix, `$HOME` is mounted at its own path (plus the project root when
+  the cwd is outside home — read-only agents may read other projects); on
+  Windows, every existing drive is mounted at MSYS form (`C:\` = `/c`).
+  Sandbox paths match host paths one-to-one, so paths move verbatim between
+  bash and the `read` tool. Everything outside the mounts remains per-call
+  in-memory scratch.
+- **Switched `just-bash` for the `@jerryan/just-bash` fork** (^3.10.0),
+  which adds the Windows native-spelling path translation the real-layout
+  scheme relies on, plus extra default utilities (jq, yq, sqlite3, rg,
+  xan).
+- **New sandboxed `python` tool for review/explore children**: stdlib-only
+  WASM CPython over the same read-only filesystem, for dependency-free
+  analysis scripts. It is a separate tool — NOT a `python3` command in
+  the bash sandbox — because a bare `python3` on PATH implies the native
+  interpreter (project env, pip), a capability the WASM build doesn't
+  have; the dedicated tool makes the stdlib-only contract explicit.
+  (The role allowlist must name `python`: pi filters customTools through
+  it — a custom-only tool name missing from the allowlist is silently
+  dropped.)
+- **`just-git` bumped to ^1.9.0**, which fixes the CRLF `.gitignore`
+  parsing quirk (Windows checkouts with `core.autocrlf=true` had ignore
+  rules silently no-op inside the sandbox).
+- Trimmed the sandboxed bash tool description to behavioral deltas from
+  stock bash (read-only, no network, stateless per call).
+
 ## 0.3.0
 
 ### Changed

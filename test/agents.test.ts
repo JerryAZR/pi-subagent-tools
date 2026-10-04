@@ -17,7 +17,7 @@ import * as os from "node:os";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { AgentManager, PROTECTION_TURNS } from "../agents.ts";
+import { AgentManager, PROTECTION_TURNS, ROLES } from "../agents.ts";
 
 // ---------------------------------------------------------------------------
 // Fake session
@@ -367,5 +367,19 @@ describe("abort", () => {
     controller.abort();
     assert.strictEqual(session.abortCalls, 1);
     await assert.rejects(pending, /aborted/);
+  });
+});
+
+describe("read-only tool allowlist", () => {
+  it("covers every custom tool name (pi filters customTools through the allowlist)", () => {
+    for (const roleName of ["review", "explore"] as const) {
+      const role = ROLES[roleName];
+      for (const tool of role.customTools ?? []) {
+        assert.ok(
+          role.tools?.includes(tool.name),
+          `${roleName}: custom tool "${tool.name}" would be filtered out — add it to tools`,
+        );
+      }
+    }
   });
 });
