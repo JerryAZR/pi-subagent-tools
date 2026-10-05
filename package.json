@@ -1,6 +1,6 @@
 {
   "name": "@jerryan/pi-subagent-tools",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Minimal pi extension: delegate, review, and explore via in-process subagent sessions",
   "type": "module",
   "main": "index.ts",
@@ -57,7 +57,7 @@
     "typescript": "^5.4.0"
   },
   "dependencies": {
-    "@jerryan/just-bash": "^3.10.0",
+    "@jerryan/just-bash": "^3.11.0",
     "just-git": "^1.9.0"
   }
 }

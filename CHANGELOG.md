@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.1
+
+### Changed
+
+- **Bumped `@jerryan/just-bash` to ^3.11.0.** Brings in the October
+  upstream-sync batch: `mktemp` and `yes` commands, `MountableFs` sync
+  writes with the standard layout set up in the base filesystem, and
+  correctness fixes for `break`/`continue` exit status, `${var:-default}`
+  under `set -u`, associative arrays, repeated `grep -e`, `find` on
+  unreadable directories, `jq to_entries`/`tonumber`, and `curl -d @-`.
+  The `undici` runtime dependency is dropped.
+
 ## 0.4.0
 
 ### Changed
