@@ -54,7 +54,7 @@ General-purpose worker. Full tool access (read, bash, edit, write), and loads yo
 
 ### `follow_up`
 
-Send a follow-up task to a previously spawned subagent, continuing its session with full context. The agent retains its original role, tools, and working directory — a reviewer stays read-only forever.
+Send a follow-up task to a previously spawned subagent, continuing its session with full context. The agent retains its original role, tools, and working directory — a reviewer stays read-only forever. If the agent's context usage exceeds 50%, the session is compacted first; a real compaction failure (rate limit, auth, network) fails the follow-up loudly instead of silently running uncompacted.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -82,12 +82,12 @@ Agents live in a per-session registry. Cleanup is recency-based:
 
 ## Recursion guard
 
-Subagent nesting is capped structurally — child sessions are created with extension discovery disabled, so they get exactly the tools the extension injects:
+Subagent nesting is capped structurally — read-only children are created with extension discovery disabled (they get exactly the injected tools), and delegate children get filtered discovery plus only `review`/`explore`/`follow_up` — never `delegate`:
 
 | Parent role | `review` | `explore` | `delegate` | `follow_up` |
 |-------------|:--:|:--:|:--:|:--:|
 | Parent (normal) | ✓ | ✓ | ✓ | ✓ |
-| Delegate child | ✓ | ✓ | Rejects at runtime | ✓ |
+| Delegate child | ✓ | ✓ | not registered | ✓ |
 | Review / explore child | — | — | — | — |
 
 A delegate child's agents live in their own registry with their own ids.

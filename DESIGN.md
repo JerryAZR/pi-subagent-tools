@@ -64,10 +64,14 @@ The cost is process isolation: a pathological child shares the parent's event
 loop and memory. Agent loops are async I/O-bound, so this is mostly
 theoretical, but it is the deliberate tradeoff of this design.
 
-**Cache-conscious by default.** `delegate` children use the parent's current
+**Cache-conscious where it's free.** `delegate` children use the parent's current
 model and thinking level, the same default system prompt, and the same
 default tool set (no allowlist). Role prompts are appended via the resource
 loader's `appendSystemPrompt`, referencing static shipped `.md` files by path.
+The one deliberate divergence: children don't get the `delegate` tool, so
+their tool list isn't byte-identical to the parent's and spawns may miss
+some cross-session prefix cache. That trade is accepted — a registered tool
+whose only contract is to fail is worse than a slightly shorter shared prefix.
 
 **No runtime file I/O.** System prompts for all roles are static `.md` files
 shipped with the extension, referenced by path (the resource loader reads
@@ -88,9 +92,9 @@ follow_up  agent, task              (agent's own tools)   (agent's own cwd)
 The sandboxed `bash` is a read-only just-bash environment (real-layout
 mounts: `$HOME` on posix, every drive at MSYS form on Windows, so sandbox
 paths match host paths one-to-one; ~80 utilities, git with no network,
-stateless per call). The sandboxed `python` tool runs stdlib-only WASM
-CPython over the same filesystem. See "read-only is enforced at the
-capability layer" below.
+stateless per call, 60s default timeout the caller can override). The
+sandboxed `python` tool runs stdlib-only WASM CPython over the same
+filesystem. See "read-only is enforced at the capability layer" below.
 
 ### `review`
 
@@ -129,9 +133,10 @@ Agents live in a per-extension-instance registry (`AgentManager`). Cleanup is
 recency-based, not count-based:
 
 - The owning session's turn counter advances on every `turn_end`.
-- An agent records `lastActiveTurn` at spawn and when each run completes
+- An agent records `lastActiveTurn` at spawn, when each run completes
   (success or error — an errored agent you might follow up with is still
-  active).
+  active), and when a follow-up begins compacting its context (engagement
+  counts even if that run then fails).
 - A sweep at `turn_end` disposes agents idle for more than
   `PROTECTION_TURNS` (10) turns. There is no cap — any number of recently
   active agents survive.
@@ -145,17 +150,46 @@ Ownership is a tree: a delegate entry owns its child manager, and disposing
 an entry cascades `disposeAll()` to the child before disposing the session.
 No session in the tree outlives its owner.
 
+## Follow-up compaction
+
+A follow-up on an agent whose context usage exceeds 50% compacts the
+session first. Two reasons: model capability degrades well before the
+context window fills, and compacting between tasks — a natural pause
+point where losing history costs nothing — beats the SDK's mid-run
+auto-compaction.
+
+Failure policy splits on what the failure means:
+
+- **Benign — proceed without compaction.** "Already compacted" and
+  "Nothing to compact (session too small)" mean the session's own policy
+  has nothing left to cut; running uncompacted is exactly right.
+  "Compaction cancelled" means an extension hook (delegate children only)
+  decided against it. A summarization stopped at the token cap is refused
+  by a quality guard — rare, and the follow-up itself is unaffected.
+- **Real — fail loudly, never prompt.** Rate limits, auth, network, no
+  model. Proceeding would run the follow-up uncompacted, and a transient
+  error (a 429 that lifts by the next call) would silently defeat the
+  policy; a loud failure lets the parent retry.
+
+Known approximation: the split is made by matching `session.compact()`'s
+error message text — the only signal it gives. The strings are verified
+against the installed SDK; if an SDK upgrade rewords them, benign
+failures degrade to loud failures (safe direction, but follow-ups on
+nothing-to-compact agents would break until the matcher is updated).
+
 ## Recursion guard
 
-Structural, not env-based. Child sessions are created with
-`noExtensions: true` — nothing is discovered from user or project config, so
-a child gets exactly the tools the extension injects:
+Structural, not env-based. Review/explore children are created with
+`noExtensions: true` — nothing is discovered from user or project config,
+so they get exactly the tools injected. Delegate children discover user
+and project extensions (filtered — see below) and never get `delegate`
+injected:
 
 ```
 Child of   | review  | explore | delegate                  | follow_up
 ───────────┼─────────┼─────────┼───────────────────────────┼──────────
 parent     | active  | active  | active                    | active
-delegate   | active  | active  | registered, rejects       | active
+delegate   | active  | active  | not registered            | active
 review     | (no subagent tools — leaf worker)
 explore    | (no subagent tools — leaf worker)
 ```

@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.4.2
+
+### Added
+
+- **follow_up now compacts the agent's context first when usage exceeds
+  50%.** Model capability degrades well before the context window fills,
+  and compacting between tasks — a natural pause point — beats the SDK's
+  mid-run auto-compaction. Failures that mean "nothing to compact by the
+  session's own policy" (or a refused partial summary) proceed without
+  compaction; every other failure (rate limits, auth, network) fails the
+  follow-up loudly — a transient 429 recovering by the next call must not
+  silently downgrade to an uncompacted run.
+- **Sandboxed bash `timeout` parameter** (seconds, default 60,
+  caller-chosen). Deadline failures report exit code 124, the GNU
+  timeout(1) convention.
+
+### Changed
+
+- **Bumped `@jerryan/just-bash` to ^3.11.1** — aborting a sandboxed bash
+  call while `find`'s parallel batch traversal was in flight crashed the
+  host pi process (unhandled rejections from `Promise.all`; only the
+  first was caught). Abort now propagates cleanly as exit code 124.
+- **Delegate children no longer see the `delegate` tool at all**
+  (previously registered but always rejected). The recursion guard is now
+  purely structural — there is no tool to call and no error path to hit.
+  The old rejecting registration existed only to keep child tool lists
+  byte-identical to the parent's for prefix-cache hits; without context
+  inheritance that trade no longer pays.
+- Trimmed model-facing tool and parameter descriptions — removed guidance
+  duplicated by snippets, guidelines, and runtime error messages.
+
+### Internal
+
+- `npm run typecheck` (`tsc --noEmit`) added and wired into CI; tsconfig
+  gains `allowImportingTsExtensions`. First run caught a real drift:
+  just-git's vendored stat types (`dev`/`ino: number`) vs the fork's
+  widened `FsStat` (`number | bigint`) — contained with a documented cast
+  at the `createGit` call site until just-git's types catch up.
+- LICENSE copyright holder filled in.
+
 ## 0.4.1
 
 ### Changed

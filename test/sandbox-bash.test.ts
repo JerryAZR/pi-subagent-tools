@@ -22,14 +22,14 @@ function escapeRegExp(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function run(command: string) {
-  return sandboxBashTool.execute("test", { command }, undefined, undefined, {
+function run(command: string, timeout?: number) {
+  return sandboxBashTool.execute("test", { command, timeout }, undefined, undefined, {
     cwd: repoDir,
   } as any);
 }
 
-async function textOf(command: string) {
-  const result = await run(command);
+async function textOf(command: string, timeout?: number) {
+  const result = await run(command, timeout);
   return (result.content[0] as any).text as string;
 }
 
@@ -144,6 +144,19 @@ describe("sandboxed bash: sandbox layout", () => {
   it("truncates very long output", async () => {
     const out = await textOf("seq 1 5000");
     assert.match(out, /\[output truncated: showing \d+ lines, \d+ chars\]/);
+  });
+});
+
+describe("sandboxed bash: timeout", () => {
+  it("aborts at the deadline with exit code 124", async () => {
+    const out = await textOf("sleep 5", 1);
+    assert.match(out, /Exit code 124/);
+    assert.match(out, /execution deadline/);
+  });
+
+  it("a generous timeout lets slow commands finish", async () => {
+    const out = await textOf("sleep 0.2; echo done", 10);
+    assert.match(out, /done/);
   });
 });
 

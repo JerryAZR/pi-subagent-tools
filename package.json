@@ -1,6 +1,6 @@
 {
   "name": "@jerryan/pi-subagent-tools",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Minimal pi extension: delegate, review, and explore via in-process subagent sessions",
   "type": "module",
   "main": "index.ts",
@@ -36,7 +36,8 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "test": "node --experimental-strip-types --import ./test/register-mocks.mjs --test test/*.test.ts"
+    "test": "node --experimental-strip-types --import ./test/register-mocks.mjs --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
   },
   "pi": {
     "extensions": [
@@ -57,7 +58,7 @@
     "typescript": "^5.4.0"
   },
   "dependencies": {
-    "@jerryan/just-bash": "^3.11.0",
+    "@jerryan/just-bash": "^3.11.1",
     "just-git": "^1.9.0"
   }
 }

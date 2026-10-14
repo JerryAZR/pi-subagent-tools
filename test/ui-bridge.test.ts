@@ -121,11 +121,12 @@ describe("dialog forwarding", () => {
   it("custom forwards the factory and returns its result", async () => {
     const parent = createFakeParent({ custom: async (factory: any) => factory() });
     const bridge = createUIBridge(parent, { label: "delegate" });
-    const factory = () => "component";
+    const component = { render: () => [], invalidate: () => {} };
+    const factory = () => component;
 
     const result = await bridge.custom(factory);
 
-    assert.strictEqual(result, "component");
+    assert.strictEqual(result, component);
     const [call] = called(parent, "custom");
     assert.strictEqual(call.args[0], factory);
   });
@@ -209,7 +210,7 @@ describe("dropped chrome methods", () => {
     const parent = createFakeParent();
     const bridge = createUIBridge(parent, { label: "delegate" });
 
-    const unsub = bridge.onTerminalInput(() => {});
+    const unsub = bridge.onTerminalInput(() => undefined);
 
     assert.strictEqual(typeof unsub, "function");
     assert.doesNotThrow(() => unsub());

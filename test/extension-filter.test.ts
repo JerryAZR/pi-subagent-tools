@@ -11,7 +11,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as path from "node:path";
 
-import { filterChildExtensions } from "../agents.ts";
+import { filterChildExtensions, registerAgentTools, registerChildAgentTools } from "../agents.ts";
 
 const SELF_DIR = path.resolve("D:/Projects/pi-packages/pi-subagent-tools");
 const CHILD_CWD = path.resolve("D:/some/project");
@@ -86,5 +86,36 @@ describe("filterChildExtensions", () => {
       projectTrusted: true,
     });
     assert.strictEqual(result.length, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Registration surface — the other half of the recursion guard
+// ---------------------------------------------------------------------------
+
+describe("registered tool surfaces", () => {
+  function fakePi() {
+    const names: string[] = [];
+    return {
+      names,
+      on() {},
+      registerTool(tool: { name: string }) {
+        names.push(tool.name);
+      },
+    };
+  }
+  const manager = {} as any;
+
+  it("parent surface registers all four tools", () => {
+    const pi = fakePi();
+    registerAgentTools(pi as any, manager);
+    assert.deepStrictEqual(pi.names.sort(), ["delegate", "explore", "follow_up", "review"]);
+  });
+
+  it("delegate-child surface registers no delegate tool", () => {
+    const pi = fakePi();
+    registerChildAgentTools(pi as any, manager);
+    assert.deepStrictEqual(pi.names.sort(), ["explore", "follow_up", "review"]);
+    assert.ok(!pi.names.includes("delegate"), "delegate must not be registered in children");
   });
 });

@@ -29,7 +29,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { Type } from "@sinclair/typebox";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { Bash, InMemoryFs, MountableFs, OverlayFs, type ExecResult } from "@jerryan/just-bash";
+import { Bash, InMemoryFs, MountableFs, OverlayFs, type CustomCommand, type ExecResult } from "@jerryan/just-bash";
 import { createGit, type GitCommandName } from "just-git";
 
 /** Pure-mutator git verbs, disabled for clean UX errors. FS enforces the rest. */
@@ -232,6 +232,9 @@ export function createSandboxFs(mounts: { at: string; root: string }[]): Mountab
 const MAX_OUTPUT_CHARS = 50_000;
 const MAX_OUTPUT_LINES = 2_000;
 
+/** Default per-call wall-clock timeout; the caller overrides via `timeout`. */
+const DEFAULT_TIMEOUT_SECONDS = 60;
+
 /**
  * Filesystem-style error codes the sandbox can raise. just-bash reports
  * command-level failures (touch, rm) as exit codes, but interpreter-level
@@ -242,6 +245,12 @@ const MAX_OUTPUT_LINES = 2_000;
  */
 const FS_ERROR_PATTERN =
   /^(EROFS|EACCES|EPERM|ENOENT|EFBIG|ENOSPC|EISDIR|ENOTDIR|ELOOP|ENOTEMPTY|EEXIST|EINVAL|EBUSY|EXDEV|EIO|ENAMETOOLONG|EMFILE|ENFILE|EPIPE)\b/;
+
+/** Wall-clock deadline hit (just-bash: "... exceeded [its] execution deadline ..."). */
+const TIMEOUT_PATTERN = /execution deadline/;
+
+/** GNU timeout(1) convention: 124 = the command timed out. */
+const TIMEOUT_EXIT_CODE = 124;
 
 export function truncateOutput(output: string): string {
   const lines = output.split("\n");
@@ -259,7 +268,8 @@ export const sandboxBashTool = defineTool({
   description:
     "Execute a bash command in a sandboxed, read-only filesystem (standard utilities plus git; no network; writes to real paths fail by design; absolute host paths work verbatim). " +
     "Returns stdout and stderr. Output is truncated to 2000 lines or 50KB (whichever is hit first). " +
-    "Each call runs in a fresh shell — cd and environment variables do not persist between calls.",
+    "Each call runs in a fresh shell — cd and environment variables do not persist between calls. " +
+    `Calls time out after ${DEFAULT_TIMEOUT_SECONDS} seconds by default; pass timeout to override.`,
   promptSnippet: "Run a command in the read-only sandboxed shell",
   promptGuidelines: ["Use bash for searching, file inspection, and git history."],
   parameters: Type.Object({
@@ -267,6 +277,11 @@ export const sandboxBashTool = defineTool({
       description:
         "The command line to execute (e.g. 'grep -rn \"pattern\" src/', 'git log --oneline -10', 'find . -name \"*.ts\" | head').",
     }),
+    timeout: Type.Optional(
+      Type.Number({
+        description: `Timeout in seconds (default ${DEFAULT_TIMEOUT_SECONDS}). The call fails if the command runs longer.`,
+      }),
+    ),
   }),
   async execute(_toolCallId, params, signal, _onUpdate, ctx) {
     const topology = computeTopology(path.resolve(ctx.cwd), os.homedir());
@@ -274,11 +289,16 @@ export const sandboxBashTool = defineTool({
       fs: createSandboxFs(topology.mounts),
       cwd: topology.virtualCwd,
       env: { HOME: topology.virtualHome },
+      executionLimits: { maxExecutionTimeMs: (params.timeout ?? DEFAULT_TIMEOUT_SECONDS) * 1000 },
       // Deliberately NO python here: a bare `python3` on PATH implies the
       // native interpreter (project env, pip). Sandboxed stdlib-only CPython
       // is a separate tool with that contract made explicit — see
       // sandbox-python.ts.
-      customCommands: [createGit({ network: false, disabled: DISABLED_GIT })],
+      // The cast bridges vendored-type drift: just-git's FileStat declares
+      // dev/ino as number, the fork's FsStat widened them to number|bigint
+      // (runtime-harmless — just-git never narrows on them). Root fix
+      // belongs in just-git's stat types; until then, keep the cast.
+      customCommands: [createGit({ network: false, disabled: DISABLED_GIT }) as unknown as CustomCommand],
     });
     const result = await execSafely(bash, params.command, signal);
     const stdout = result.stdout;
@@ -304,8 +324,12 @@ export async function execSafely(
   try {
     return await bash.exec(command, { signal });
   } catch (err: any) {
-    if (FS_ERROR_PATTERN.test(err?.message ?? "")) {
+    const message = err?.message ?? "";
+    if (FS_ERROR_PATTERN.test(message)) {
       return { stdout: "", stderr: err.message, exitCode: 1 };
+    }
+    if (TIMEOUT_PATTERN.test(message)) {
+      return { stdout: "", stderr: err.message, exitCode: TIMEOUT_EXIT_CODE };
     }
     throw err;
   }

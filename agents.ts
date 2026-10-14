@@ -31,11 +31,11 @@
  * ─────────
  * Structural, not env-based. Review/explore children are created with
  * noExtensions: true — they get exactly the tools injected here (read +
- * sandboxed bash + sandboxed python) and are leaves. Delegate children discover user/project
- * extensions like a fresh pi (guard extensions included), minus this
- * extension itself — self-exclusion is the recursion guard — and get
- * review/explore/follow_up via an inline extension factory; their
- * delegate tool is registered but rejects.
+ * sandboxed bash + sandboxed python) and are leaves. Delegate children
+ * discover user/project extensions like a fresh pi (guard extensions
+ * included), minus this extension itself — self-exclusion is the
+ * recursion guard — and get review/explore/follow_up via an inline
+ * extension factory. No delegate tool exists below the parent.
  */
 
 import * as fs from "node:fs";
@@ -121,6 +121,40 @@ export const ROLES: Record<AgentRole, RoleConfig> = {
 /** Agents idle for more than this many owning-session turns are disposed. */
 export const PROTECTION_TURNS = 10;
 
+/**
+ * A follow-up agent's context is compacted before the new task when usage
+ * exceeds this percent. Model capability degrades well before the context
+ * window is full, and compacting between tasks (a natural pause point)
+ * beats the SDK's mid-run auto-compaction. Tests assert the literal
+ * boundary (50/51) — the threshold is the contract.
+ */
+const COMPACT_ABOVE_PERCENT = 50;
+
+/**
+ * session.compact() failures where proceeding without compaction is correct.
+ * Matched against error message text — the only signal compact() gives:
+ *   - "Already compacted" / "Nothing to compact" — the session has nothing
+ *     left to cut by its own policy; running uncompacted is exactly right.
+ *   - "Compaction cancelled" — an extension hook (delegate children only)
+ *     decided against compaction; respect that decision.
+ *   - "generation hit the token cap and the summary is incomplete" — a
+ *     quality guard refused to persist a partial summary; rare, and the
+ *     follow-up itself is unaffected.
+ * Everything else (rate limits, auth, network, no model) is a real failure:
+ * the follow-up fails loudly so the parent retries — proceeding would run
+ * uncompacted, and a transient error (e.g. a 429 that lifts by the next
+ * call) would silently defeat the policy.
+ */
+function isBenignCompactionFailure(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    msg.includes("Already compacted") ||
+    msg.includes("Nothing to compact") ||
+    msg.includes("Compaction cancelled") ||
+    msg.includes("generation hit the token cap and the summary is incomplete")
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Parameter schemas
 // ---------------------------------------------------------------------------
@@ -150,8 +184,7 @@ export const ReviewParams = Type.Object({
 export const ExploreParams = Type.Object({
   task: TaskParam,
   cwd: Type.String({
-    description:
-      "Working directory for the explorer. Required — the explorer runs in the target project to pick up its settings, skills, and context files.",
+    description: "Working directory for the explorer.",
   }),
   skills: SkillsParam,
 });
@@ -165,7 +198,7 @@ export const DelegateParams = Type.Object({
 export const FollowUpParams = Type.Object({
   agent: Type.String({
     description:
-      'Agent id from a previous spawn or follow_up result (e.g. "delegate-1"). The agent continues its session with full context and retains its original role, tools, and working directory.',
+      'Agent id from a previous subagent tool result (e.g. "delegate-1").',
   }),
   task: Type.String({
     description: "Follow-up task or question for the agent",
@@ -408,6 +441,11 @@ function extractResult(messages: Array<any>): { output: string; isError: boolean
  * agent loop catches and marks the tool result as an error with this message.
  * (Returning isError in the result object is no longer supported.)
  */
+/** Shared pre-flight abort guard (followUp: pre-compaction; run: pre-prompt). */
+function assertNotAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) fail("Subagent was aborted");
+}
+
 function fail(text: string): never {
   throw new Error(text);
 }
@@ -530,7 +568,32 @@ export class AgentManager {
         `Agent "${opts.agent}" not found (expired or never existed).${hint} Spawn a fresh agent instead.`,
       );
     }
+    assertNotAborted(opts.signal);
+    await this.compactIfNeeded(entry);
     return this.run(entry, opts.task, opts.signal, opts.onUpdate);
+  }
+
+  /**
+   * Compact the agent's context before a follow-up when usage is high —
+   * between tasks, where losing history costs nothing and the child starts
+   * the new task with full capability. Fresh spawns are never compacted
+   * (their context is empty by construction).
+   */
+  private async compactIfNeeded(entry: AgentEntry): Promise<void> {
+    // Compaction is engagement: protect the agent from a mid-compaction sweep.
+    entry.lastActiveTurn = this.turn;
+    const percent = entry.session.getContextUsage()?.percent;
+    if (percent === null || percent === undefined) return;
+    if (percent <= COMPACT_ABOVE_PERCENT) return;
+    try {
+      await entry.session.compact();
+    } catch (err: any) {
+      if (!isBenignCompactionFailure(err)) {
+        fail(`Follow-up compaction failed: ${err.message || String(err)}`);
+      }
+      // Benign failure: nothing to compact by the session's own policy, or
+      // compaction was refused — proceed with the follow-up as-is.
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -550,7 +613,7 @@ export class AgentManager {
     const onAbort = () => {
       void entry.session.abort();
     };
-    if (signal?.aborted) fail("Subagent was aborted");
+    assertNotAborted(signal);
     if (signal) signal.addEventListener("abort", onAbort, { once: true });
 
     try {
@@ -707,12 +770,11 @@ const DELEGATE_TOOL: SpawnToolConfig = {
   label: "Delegate",
   description:
     "Delegate a task to a subagent. " +
-    "For general-purpose work that doesn't fit the review or explore tools. " +
-    "The result includes an agent id — use follow_up to continue working with the same agent.",
+    "For general-purpose work that needs full agent capabilities.",
   promptSnippet: "Delegate a task to a worker subagent",
   promptGuidelines: [
-    "Use the delegate tool for non-trivial, self-contained implementation tasks — it has full tool access unlike the read-only review and explore tools.",
-    "Use follow_up with the agent id from the result to refine a subagent's work or recover from an incomplete result, instead of spawning a fresh agent.",
+    "Use the delegate tool to let subagents take over lengthy yet self-contained and well-defined tasks, " +
+    "so you can focus on the big picture without being buried inside implementation details.",
   ],
   parameters: DelegateParams,
   resolveCwd: (params, ctx) => params.cwd ?? ctx.cwd,
@@ -723,13 +785,10 @@ const REVIEW_TOOL: SpawnToolConfig = {
   role: "review",
   label: "Review",
   description:
-    "Review code changes or files in the current project. " +
-    "The reviewer is always read-only and runs in the parent's working directory. " +
-    "Use for code review, diff inspection, issue analysis, and quality checks. " +
-    "The result includes an agent id — use follow_up to ask the reviewer more questions.",
+    "Review code changes or files in the current project with a read-only subagent.",
   promptSnippet: "Review code or files with a read-only subagent",
   promptGuidelines: [
-    "Use the review tool for code review, diff inspection, and quality checks — it is read-only and cannot modify files.",
+    "Use the review tool for code review, diff inspection, and quality checks.",
   ],
   parameters: ReviewParams,
   resolveCwd: (_params, ctx) => ctx.cwd,
@@ -739,13 +798,10 @@ const EXPLORE_TOOL: SpawnToolConfig = {
   role: "explore",
   label: "Explore",
   description:
-    "Explore a project directory to understand its structure, patterns, and key files. " +
-    "The explorer is always read-only and runs in the specified working directory. " +
-    "Use for mapping codebases, scouting dependencies, or understanding unfamiliar projects. " +
-    "The result includes an agent id — use follow_up to dig deeper with the same explorer.",
+    "Explore a project directory with a read-only subagent to understand its structure, patterns, and key files.",
   promptSnippet: "Explore a project directory with a read-only subagent",
   promptGuidelines: [
-    "Use the explore tool to map unfamiliar codebases or scout dependencies — it runs read-only in the specified directory.",
+    "Use the explore tool to map unfamiliar codebases or scout dependencies.",
   ],
   parameters: ExploreParams,
   resolveCwd: (params) => params.cwd!,
@@ -754,8 +810,8 @@ const EXPLORE_TOOL: SpawnToolConfig = {
 
 /**
  * Build a spawn tool's definition. Everything is derived from the role
- * config except `execute` — so the parent's real tool and the delegate
- * child's rejecting guard differ by exactly one function.
+ * config except `execute` — the parent registers delegate/review/explore,
+ * delegate children only review/explore (no delegate: the recursion guard).
  */
 function spawnToolDefinition(
   config: SpawnToolConfig,
@@ -811,25 +867,12 @@ function registerSpawnTool(
   );
 }
 
-/** The rejecting delegate tool registered in delegate children. */
-function registerRejectingDelegateTool(pi: ExtensionAPI): void {
-  pi.registerTool(
-    spawnToolDefinition(DELEGATE_TOOL, () =>
-      fail(
-        "Delegation not available in delegate subagents. Use review or explore instead.",
-      ),
-    ) as any,
-  );
-}
-
 function registerFollowUpTool(pi: ExtensionAPI, manager: AgentManager): void {
   pi.registerTool({
     name: "follow_up",
     label: "Follow Up",
     description:
-      "Send a follow-up task to a previously spawned subagent, continuing its session with full context. " +
-      "The agent retains its original role, tools, and working directory. " +
-      "Errors if the agent id is unknown or expired — spawn a fresh agent instead.",
+      "Send a follow-up task to a previously spawned subagent, continuing its session with full context.",
     promptSnippet: "Continue working with an existing subagent",
     promptGuidelines: [
       "Use follow_up to refine a subagent's work, ask questions about its findings, or recover from an incomplete or failed result — the agent keeps its full context.",
@@ -866,15 +909,19 @@ export function registerAgentTools(pi: ExtensionAPI, manager: AgentManager): voi
 }
 
 /**
- * Guarded tool surface for delegate children: review/explore/follow_up are
- * active; delegate is registered but rejects — the structural recursion guard.
+ * Guarded tool surface for delegate children: review/explore/follow_up only.
+ * delegate is not registered at all — the recursion guard is purely
+ * structural (there is no tool to call, no error path to hit). An earlier
+ * version registered a rejecting delegate to keep the child's tool list
+ * byte-identical to the parent's for prefix-cache hits; that trade died
+ * with context inheritance — children start fresh, and a registered tool
+ * whose only contract is to fail is a lie in the tool surface.
  */
 export function registerChildAgentTools(
   pi: ExtensionAPI,
   manager: AgentManager,
 ): void {
   wireLifecycle(pi, manager);
-  registerRejectingDelegateTool(pi);
   registerSpawnTool(pi, manager, REVIEW_TOOL);
   registerSpawnTool(pi, manager, EXPLORE_TOOL);
   registerFollowUpTool(pi, manager);

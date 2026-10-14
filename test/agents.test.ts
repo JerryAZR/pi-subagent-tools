@@ -6,6 +6,7 @@
  *   - Spawn result formatting (agent id footer)
  *   - CWD validation
  *   - Follow-up routing and unknown-id errors (with live agent list)
+ *   - Follow-up compaction: threshold, ordering, benign vs real failures
  *   - Turn-based protection sweep (idle-only cleanup)
  *   - Abort and error propagation
  *   - disposeAll on shutdown
@@ -28,6 +29,12 @@ function fakeSession(behavior: {
   stopReason?: string;
   errorMessage?: string;
   hang?: boolean;
+  /** Context usage percent. null → unknown (percent: null); omitted → low default. */
+  contextPercent?: number | null;
+  /** When set, compact() throws Error(compactError). */
+  compactError?: string;
+  /** When true, getContextUsage() returns undefined (no usage yet). */
+  noUsage?: boolean;
 } = {}) {
   const session: any = {
     messages: [] as any[],
@@ -35,6 +42,8 @@ function fakeSession(behavior: {
     disposed: false,
     abortCalls: 0,
     prompts: [] as string[],
+    compactCalls: 0,
+    events: [] as string[],
     _listener: undefined as any,
     subscribe(listener: any) {
       this._listener = listener;
@@ -42,6 +51,7 @@ function fakeSession(behavior: {
     },
     async prompt(task: string) {
       this.prompts.push(task);
+      this.events.push(`prompt:${task}`);
       if (behavior.hang) {
         // Signal that the run has started, then wait for abort().
         this._started?.();
@@ -70,6 +80,19 @@ function fakeSession(behavior: {
         stopReason: "stop",
         usage: { input: 10, output: 5, totalTokens: 15 },
       });
+    },
+    getContextUsage() {
+      if (behavior.noUsage) return undefined;
+      if (behavior.contextPercent === null) {
+        return { tokens: null, contextWindow: 100000, percent: null };
+      }
+      const percent = behavior.contextPercent ?? 1;
+      return { tokens: percent * 1000, contextWindow: 100000, percent };
+    },
+    async compact() {
+      this.compactCalls++;
+      this.events.push("compact");
+      if (behavior.compactError) throw new Error(behavior.compactError);
     },
     async abort() {
       this.abortCalls++;
@@ -236,6 +259,108 @@ describe("followUp", () => {
       manager.followUp({ agent: "delegate-1", task: "hi" }),
       /No live agents/,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Follow-up compaction
+// ---------------------------------------------------------------------------
+
+describe("follow-up compaction", () => {
+  const spawnFirst = (manager: AgentManager, session: any) =>
+    manager.spawn({ role: "delegate", task: "first", cwd: os.tmpdir(), ctx: fakeCtx })
+      .then(() => session);
+
+  it("does not compact at or below the threshold", async () => {
+    for (const contextPercent of [1, 49, 50]) {
+      const session = fakeSession({ contextPercent });
+      const manager = createManager([session]);
+      await spawnFirst(manager, session);
+      await manager.followUp({ agent: "delegate-1", task: "second" });
+      assert.strictEqual(session.compactCalls, 0, `contextPercent=${contextPercent}`);
+    }
+  });
+
+  it("compacts above the threshold, before the follow-up prompt", async () => {
+    const session = fakeSession({ contextPercent: 51 });
+    const manager = createManager([session]);
+    await spawnFirst(manager, session);
+    await manager.followUp({ agent: "delegate-1", task: "second" });
+    assert.strictEqual(session.compactCalls, 1);
+    assert.deepStrictEqual(session.events, ["prompt:first", "compact", "prompt:second"]);
+  });
+
+  it("skips compaction when usage is unknown (percent null or missing)", async () => {
+    for (const behavior of [{ contextPercent: null }, { noUsage: true }] as const) {
+      const session = fakeSession(behavior as any);
+      const manager = createManager([session]);
+      await spawnFirst(manager, session);
+      await manager.followUp({ agent: "delegate-1", task: "second" });
+      assert.strictEqual(session.compactCalls, 0, JSON.stringify(behavior));
+    }
+  });
+
+  it("proceeds without compaction on benign compact failures", async () => {
+    const benign = [
+      "Already compacted",
+      "Nothing to compact (session too small)",
+      "Compaction cancelled",
+      "Summarization failed: generation hit the token cap and the summary is incomplete",
+    ];
+    for (const compactError of benign) {
+      const session = fakeSession({ contextPercent: 90, compactError });
+      const manager = createManager([session]);
+      await spawnFirst(manager, session);
+      const result = await manager.followUp({ agent: "delegate-1", task: "second" });
+      assert.strictEqual(session.compactCalls, 1, compactError);
+      assert.deepStrictEqual(session.prompts, ["first", "second"], compactError);
+      assert.ok(text(result).includes("done: second"), compactError);
+    }
+  });
+
+  it("fails loudly on real compaction failures and never prompts", async () => {
+    const session = fakeSession({ contextPercent: 90, compactError: "429 Too Many Requests" });
+    const manager = createManager([session]);
+    await spawnFirst(manager, session);
+    await assert.rejects(
+      manager.followUp({ agent: "delegate-1", task: "second" }),
+      /Follow-up compaction failed: 429 Too Many Requests/,
+    );
+    assert.deepStrictEqual(session.prompts, ["first"]);
+  });
+
+  it("skips compaction when the call is already aborted", async () => {
+    const session = fakeSession({ contextPercent: 90 });
+    const manager = createManager([session]);
+    await spawnFirst(manager, session);
+    const controller = new AbortController();
+    controller.abort();
+    await assert.rejects(
+      manager.followUp({ agent: "delegate-1", task: "second", signal: controller.signal }),
+      /Subagent was aborted/,
+    );
+    assert.strictEqual(session.compactCalls, 0);
+    assert.deepStrictEqual(session.prompts, ["first"]);
+  });
+
+  it("a failed compaction still refreshes the protection clock", async () => {
+    const session = fakeSession({ contextPercent: 90, compactError: "429 Too Many Requests" });
+    const manager = createManager([session]);
+    await spawnFirst(manager, session);
+    await assert.rejects(manager.followUp({ agent: "delegate-1", task: "second" }));
+    for (let i = 0; i < PROTECTION_TURNS; i++) manager.noteTurnEnd();
+    assert.deepStrictEqual(
+      manager.liveIds(),
+      ["delegate-1"],
+      "agent stays registered and follow-up-able after a failed compaction",
+    );
+  });
+
+  it("never compacts a fresh spawn, whatever the usage", async () => {
+    const session = fakeSession({ contextPercent: 95 });
+    const manager = createManager([session]);
+    await spawnFirst(manager, session);
+    assert.strictEqual(session.compactCalls, 0);
   });
 });
 

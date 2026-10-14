@@ -130,16 +130,16 @@ Use the explore tool with cwd "." to show the git diff of the most recent commit
 
 ---
 
-## 10. Nested delegation — delegate rejects nested delegate
+## 10. Nested delegation — no delegate tool in delegate children
 
 **Prompt:**
 ```
-Use the delegate tool to spawn another delegate that says "hello". Check if nested delegation is rejected.
+Use the delegate tool to spawn another delegate that says "hello". Check how nested delegation is handled.
 ```
 
 **Expect:**
-- The inner delegate call fails with "Delegation not available in delegate subagents"
-- Or the outer delegate reports that nested delegation was rejected
+- The child has no `delegate` tool — it reports that delegation is unavailable, or satisfies the task via review/explore
+- No inner `delegate` tool call can occur
 
 ---
 
@@ -209,3 +209,22 @@ Use follow_up with agent "delegate-99" and task "continue".
   (e.g. `[delegate-1] ...`)
 - Answering the dialog resumes the subagent's work
 - Cancelling returns the documented default to the subagent
+
+---
+
+## 16. Follow-up compaction when context is high
+
+**Setup:** A long delegate session — follow up repeatedly (or use a
+small-context model) until the agent's context passes half its window.
+
+**Prompt:**
+```
+Use the delegate tool to work through a multi-file task. Then follow_up the same agent with a related question, and ask it to report which earlier details it still sees verbatim vs. summarized.
+```
+
+**Expect:**
+- Once usage exceeds 50%, the next follow_up compacts first (visible as a pause before the child starts working)
+- The child continues with the same agent id and role
+- Older details are summarized; recent turns remain verbatim
+- A compaction failure (e.g. simulated rate limit) surfaces as "Follow-up compaction failed: ..." and the child is NOT prompted
+
