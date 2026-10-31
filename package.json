@@ -1,6 +1,6 @@
 {
   "name": "@jerryan/pi-subagent-tools",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Minimal pi extension: delegate, review, and explore via in-process subagent sessions",
   "type": "module",
   "main": "index.ts",
@@ -42,7 +42,8 @@
   "pi": {
     "extensions": [
       "./index.ts"
-    ]
+    ],
+    "prompts": []
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": ">=0.84.0",

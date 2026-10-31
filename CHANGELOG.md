@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.3
+
+### Fixed
+
+- **Subagent role prompts no longer leak into pi's slash commands.** The
+  shipped `prompts/` directory doubles as pi's conventional prompt-template
+  directory, so pi's package loader exposed `delegate.md`, `explore.md`, and
+  `review.md` as `/delegate`, `/explore`, and `/review` templates. This
+  happened whenever the package was loaded through a settings filter that
+  named only `extensions` — the loader falls back to conventional-directory
+  discovery for resource types absent from both the filter and the package
+  manifest, and the manifest declared none. The `pi` manifest now pins
+  `"prompts": []` so the package's resource set is exactly its extension;
+  the role prompts remain loadable by the subagent tools alone.
+
 ## 0.4.2
 
 ### Added
